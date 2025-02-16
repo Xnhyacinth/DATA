@@ -82,14 +82,14 @@ def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
 
     return final_predictions
 
-def update_ema_variables(ema_model, model, alpha_teacher, alpha_vida):#, iteration):
+def update_ema_variables(ema_model, model, alpha_teacher, alpha_data):#, iteration):
     # for ema_param, param in zip(ema_model.parameters(), model.parameters()):
     #     ema_param.data[:] = alpha_teacher * ema_param[:].data[:] + (1 - alpha_teacher) * param[:].data[:]
     # return ema_model
     for ema_param, (name, param) in zip(ema_model.parameters(), model.named_parameters()):
         #ema_param.data.mul_(alpha).add_(1 - alpha, param.data)
-        if "vida_" in name:
-            ema_param.data[:] = alpha_vida * ema_param[:].data[:] + (1 - alpha_vida) * param[:].data[:]
+        if "data_" in name:
+            ema_param.data[:] = alpha_data * ema_param[:].data[:] + (1 - alpha_data) * param[:].data[:]
         else:
             ema_param.data[:] = alpha_teacher * ema_param[:].data[:] + (1 - alpha_teacher) * param[:].data[:]
     return ema_model
@@ -128,7 +128,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             self.model_ema = deepcopy(self.model)
             self.thr = self.finetuning_args.unc_thr
             self.alpha_teacher = self.finetuning_args.ema_teacher
-            self.alpha_vida = self.finetuning_args.ema_vida
+            self.alpha_data = self.finetuning_args.ema_data
             for param in self.model_ema.parameters():
                 param.detach_()
                 
@@ -266,7 +266,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                                 p.data = self.model_state[f"{nm}.{npp}"] * mask + p * (1. - mask)
         
         if self.finetuning_args.scale and (self.state.global_step + 1) % self.finetuning_args.scale == 0:
-            self.model_ema = update_ema_variables(ema_model=self.model_ema, model=self.model, alpha_teacher=self.alpha_teacher, alpha_vida=self.alpha_vida)
+            self.model_ema = update_ema_variables(ema_model=self.model_ema, model=self.model, alpha_teacher=self.alpha_teacher, alpha_data=self.alpha_data)
 
         return loss.detach() / self.args.gradient_accumulation_steps
 
