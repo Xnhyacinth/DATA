@@ -20,8 +20,8 @@ seed=${14:-"42"}
 filter=${15:-"0"}
 mode=${16:-"all"}
 select=${17:-"0"}
-vida_rank1=${18:-"4"}
-vida_rank2=${19:-"16"}
+data_rank1=${18:-"4"}
+data_rank2=${19:-"16"}
 restore=${20:-"0"}
 scale=${21:-"0"}
 adaprompt=${22:-"0"}
@@ -205,16 +205,16 @@ if [ "$finetuning_type" = "lora" ];then
     fi
 fi
 
-if [ "$finetuning_type" == "vida" ];then
-    extra_args="$extra_args --vida_rank1 ${vida_rank1} --vida_rank2 ${vida_rank2} --is_vida True"
-    # if [ "$vida_rank1" != "4" ];then
-    save_path="${save_path}_vida${vida_rank1}_vida${vida_rank2}"
-    run_name="${run_name}_vida${vida_rank1}_vida${vida_rank2}"
-    merge_path="${merge_path}_vida${vida_rank1}_vida${vida_rank2}"
-    eval_path="${eval_path}_vida${vida_rank1}_vida${vida_rank2}"
+if [ "$finetuning_type" == "data" ];then
+    extra_args="$extra_args --data_rank1 ${data_rank1} --data_rank2 ${data_rank2} --is_data True"
+    # if [ "$data_rank1" != "4" ];then
+    save_path="${save_path}_data${data_rank1}_data${data_rank2}"
+    run_name="${run_name}_data${data_rank1}_data${data_rank2}"
+    merge_path="${merge_path}_data${data_rank1}_data${data_rank2}"
+    eval_path="${eval_path}_data${data_rank1}_data${data_rank2}"
     # fi
     finetuning_type=full
-    is_vida=True
+    is_data=True
 fi
 
 if [ "$deepspeed" != "-1" ];then
@@ -401,7 +401,7 @@ for part in "${parts[@]}"; do
             adapter_name_or_path=${save_prefix}/${idx}-${pre_part}
             extra_args="${extra_args0} --adapter_name_or_path ${adapter_name_or_path}"
         fi
-        if [ "$is_vida" == "True" ];then
+        if [ "$is_data" == "True" ];then
             model_name_or_path=${save_prefix}/${idx}-${pre_part}
             extra_args="${extra_args0}"
         fi
@@ -429,7 +429,7 @@ for part in "${parts[@]}"; do
             model_name_or_path=meta-llama/Llama-2-7b-hf
             extra_args="${extra_args0} --eval_dataset ${eval_dataset}"
         fi
-        if [ "$is_vida" == "True" ];then
+        if [ "$is_data" == "True" ];then
             model_name_or_path=${model_prefix}/${idx}-${part}
             extra_args="${extra_args0} --eval_dataset ${eval_dataset}"
         fi
@@ -440,7 +440,7 @@ for part in "${parts[@]}"; do
         extra_args="${extra_args} --task_id ${task_id}"
     fi
     
-    if [ "$is_vida" == "True" ];then
+    if [ "$is_data" == "True" ];then
         if [ "$part" == "yahoo" ];then
             if [ "$bs" -gt 1 ]; then
                 bs=$((bs0 / 2))

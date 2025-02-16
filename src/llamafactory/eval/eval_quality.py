@@ -20,18 +20,18 @@ def predict(params):
     scores = None
     trys = 0
     if 'yi' in engine:
-        API_KEY = "fdf536f26ac9460496ca71695bf58cec"
+        API_KEY = 
         API_BASE = "https://api.lingyiwanwu.com/v1"
     elif 'gpt' in engine:
-        API_KEY = "sk-GX5fQitXHKizUe4iF8Ed3375A72847A8807c9dAb0290C1Bc"
+        API_KEY = 
         # openai.base_url = url
         API_BASE = 'https://chatapi.onechats.top/v1/'
     elif 'glm' in engine:
-        API_KEY = "a34d5b2c2d93599b50975262f17c2557.9zsLgHWZXmPzrSF0"
+        API_KEY = 
         # openai.base_url = url
         API_BASE = 'https://open.bigmodel.cn/api/paas/v4/'
     else:
-        API_KEY = "sk-c7n62ac5h44ynsrk"
+        API_KEY = 
         API_BASE = f'https://cloud.infini-ai.com/maas/{engine}/nvidia/'
     client = OpenAI(
         api_key=API_KEY,

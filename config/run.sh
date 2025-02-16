@@ -11,8 +11,8 @@ mode=${9:-"all"}
 select=${10:-"0"}
 r=${11:-"8"}
 deepspeed=${12:-"-1"}
-vida_rank1=${13:-"4"}
-vida_rank2=${14:-"16"}
+data_rank1=${13:-"4"}
+data_rank2=${14:-"16"}
 restore=${15:-"0"}
 scale=${16:-"0"}
 adaprompt=${17:-"0"}
@@ -39,8 +39,8 @@ for i in {4..6}; do
         if [ "$tuning_method" == "lora" ];then
             output_prefix="${output_prefix}_r${r}"
         fi
-        if [ "$tuning_method" == "vida" ];then
-            output_prefix="${output_prefix}_vida${vida_rank1}_vida${vida_rank2}"
+        if [ "$tuning_method" == "data" ];then
+            output_prefix="${output_prefix}_data${data_rank1}_data${data_rank2}"
         fi
         if [ "$deepspeed" != "-1" ];then
             output_prefix="${output_prefix}_ds${deepspeed}"
@@ -77,8 +77,8 @@ for i in {4..6}; do
         fi
         mkdir -p ${output_prefix}
         LOGFILE="${output_prefix}/train_and_infer.log"
-        # bash config/train4.sh ${num_gpus} ${gpus} ${model} order_${i} ${tuning_method} 1 ${lr} ${bs} fewshot ${deepspeed} 1e-10 ${r} ${lr_type} ${seed} ${filter} ${mode} ${select} ${vida_rank1} ${vida_rank2} ${restore} ${scale} ${adaprompt} ${reinit} ${ortho_mu} ${gap_layers} ${bakebone} ${nomlp} ${project} ${replay}
-        bash config/train.sh ${num_gpus} ${gpus} ${model} order_${i} ${tuning_method} 1 ${lr} ${bs} fewshot ${deepspeed} 1e-10 ${r} ${lr_type} ${seed} ${filter} ${mode} ${select} ${vida_rank1} ${vida_rank2} ${restore} ${scale} ${adaprompt} ${reinit} ${ortho_mu} ${gap_layers} ${bakebone} ${nomlp} ${project} ${replay} > "$LOGFILE" 2>&1
+        # bash config/train4.sh ${num_gpus} ${gpus} ${model} order_${i} ${tuning_method} 1 ${lr} ${bs} fewshot ${deepspeed} 1e-10 ${r} ${lr_type} ${seed} ${filter} ${mode} ${select} ${data_rank1} ${data_rank2} ${restore} ${scale} ${adaprompt} ${reinit} ${ortho_mu} ${gap_layers} ${bakebone} ${nomlp} ${project} ${replay}
+        bash config/train.sh ${num_gpus} ${gpus} ${model} order_${i} ${tuning_method} 1 ${lr} ${bs} fewshot ${deepspeed} 1e-10 ${r} ${lr_type} ${seed} ${filter} ${mode} ${select} ${data_rank1} ${data_rank2} ${restore} ${scale} ${adaprompt} ${reinit} ${ortho_mu} ${gap_layers} ${bakebone} ${nomlp} ${project} ${replay} > "$LOGFILE" 2>&1
     done
 done
 # 
