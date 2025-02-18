@@ -47,3 +47,15 @@ bash config/run5.sh 2 0,1 llama2-7b data 1 constant 1e-4 0 all 0 8 -1 $item $r2 
 ### Details
 
 Coming Soon!
+
+## 🤝 Referencing and Citing 
+
+If you find our work useful in your research and would like to cite our project, please use the following citation: found this work useful, please consider giving this repository a star and citing our paper as follows:
+```bibtex
+@article{liao2025data,
+	title={DATA: Decomposed Attention-based Task Adaptation for Rehearsal-Free Continual Learning},
+	author={Liao, Huanxuan and He, Shizhu and Hao, Yupu and Zhao, Jun and Liu, Kang },
+	journal={arXiv preprint arXiv:2502.11482},
+	year={2025}
+}
+```
