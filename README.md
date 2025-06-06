@@ -41,7 +41,7 @@ bash config/run.sh 2 0,1 llama2-7b lora 16 constant 1e-4 0 all 0 8 -1 0 0 0 0 0 
 #### DATA
 
 ```shell
-bash config/run.sh 2 0,1 llama2-7b data 1 constant 1e-4 0 all 0 8 -1 $item $r2 0 0 8 1 1 4 0 0 0 0
+bash config/run.sh 2 0,1 llama2-7b data 1 constant 1e-4 0 all 0 8 -1 2 8 0 0 8 1 1 4 0 0 0 0
 ```
 
 ### Details
