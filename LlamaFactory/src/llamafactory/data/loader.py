@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import re
 from typing import TYPE_CHECKING, Literal, Optional, Union
 
 import numpy as np
@@ -46,6 +47,46 @@ if TYPE_CHECKING:
 
 
 logger = logging.get_logger(__name__)
+
+
+def _extract_cl_task_metadata(example: dict[str, object], idx: int, data_args: "DataArguments") -> dict[str, object]:
+    r"""Restore legacy CL metadata fields consumed by the custom trainer and metrics."""
+    prompt_messages = example.get("_prompt") or []
+    response_messages = example.get("_response") or []
+    if not isinstance(prompt_messages, list) or len(prompt_messages) == 0:
+        raise ValueError("CL dataset example is missing prompt messages.")
+
+    prompt_message = prompt_messages[0]
+    if not isinstance(prompt_message, dict) or "content" not in prompt_message:
+        raise ValueError("CL dataset example is missing the first prompt content.")
+
+    instruction = str(prompt_message["content"])
+    label = ""
+    if isinstance(response_messages, list) and len(response_messages) > 0:
+        response_message = response_messages[0]
+        if isinstance(response_message, dict):
+            label = str(response_message.get("content", ""))
+
+    task_match = re.search(r"Task:\s*(.+?)(?:\n|$)", instruction)
+    dataset_match = re.search(r"Dataset:\s*(.+?)(?:\n|$)", instruction)
+    task_name = task_match.group(1).strip() if task_match else ""
+    dataset_name = dataset_match.group(1).strip() if dataset_match else ""
+
+    normalized_orders = [order.strip().lower() for order in data_args.orders]
+    if normalized_orders and dataset_name.strip().lower() not in normalized_orders:
+        raise ValueError(
+            "Dataset {!r} extracted from CL prompt is not present in --orders {}.".format(
+                dataset_name, data_args.orders
+            )
+        )
+
+    task_id = normalized_orders.index(dataset_name.strip().lower()) if normalized_orders else 0
+    return {
+        "Task": task_name,
+        "Dataset": dataset_name,
+        "Instance": {"id": idx, "instruction": instruction, "label": label},
+        "task_id": task_id,
+    }
 
 
 def _load_single_dataset(
@@ -166,7 +207,7 @@ def _get_merged_dataset(
     model_args: "ModelArguments",
     data_args: "DataArguments",
     training_args: "Seq2SeqTrainingArguments",
-    stage: Literal["pt", "sft", "rm", "ppo", "kto"],
+    stage: Literal["pt", "sft", "rm", "ppo", "kto", "cl"],
     return_dict: bool = False,
 ) -> Union["Dataset", "IterableDataset", dict[str, "Dataset"]] | None:
     r"""Return the merged datasets in the standard format."""
@@ -188,7 +229,7 @@ def _get_merged_dataset(
 
 def _get_dataset_processor(
     data_args: "DataArguments",
-    stage: Literal["pt", "sft", "rm", "ppo", "kto"],
+    stage: Literal["pt", "sft", "rm", "ppo", "kto", "cl"],
     template: "Template",
     tokenizer: "PreTrainedTokenizer",
     processor: Optional["ProcessorMixin"],
@@ -197,7 +238,7 @@ def _get_dataset_processor(
     r"""Return the corresponding dataset processor."""
     if stage == "pt":
         dataset_processor_class = PretrainDatasetProcessor
-    elif stage == "sft" and not do_generate:
+    elif stage in ["sft", "cl"] and not do_generate:
         if data_args.packing:
             if data_args.neat_packing:  # hack datasets to have int32 attention mask
                 from datasets.arrow_writer import OptimizedTypedSequence, TypedSequence
@@ -230,7 +271,7 @@ def _get_preprocessed_dataset(
     dataset: Union["Dataset", "IterableDataset"] | None,
     data_args: "DataArguments",
     training_args: "Seq2SeqTrainingArguments",
-    stage: Literal["pt", "sft", "rm", "ppo", "kto"],
+    stage: Literal["pt", "sft", "rm", "ppo", "kto", "cl"],
     template: "Template",
     tokenizer: "PreTrainedTokenizer",
     processor: Optional["ProcessorMixin"] = None,
@@ -250,6 +291,13 @@ def _get_preprocessed_dataset(
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=(not data_args.overwrite_cache) or (training_args.local_process_index != 0),
             desc="Running tokenizer on dataset",
+        )
+
+    if stage == "cl":
+        dataset = dataset.map(
+            lambda example, idx: _extract_cl_task_metadata(example, idx, data_args),
+            with_indices=True,
+            desc="Extracting CL task metadata",
         )
 
     dataset = dataset.map(
@@ -278,7 +326,7 @@ def get_dataset(
     model_args: "ModelArguments",
     data_args: "DataArguments",
     training_args: "Seq2SeqTrainingArguments",
-    stage: Literal["pt", "sft", "rm", "ppo", "kto"],
+    stage: Literal["pt", "sft", "rm", "ppo", "kto", "cl"],
     tokenizer: "PreTrainedTokenizer",
     processor: Optional["ProcessorMixin"] = None,
 ) -> "DatasetModule":

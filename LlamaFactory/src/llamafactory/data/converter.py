@@ -132,6 +132,11 @@ class AlpacaDatasetConverter(DatasetConverter):
 
 
 @dataclass
+class CLDatasetConverter(AlpacaDatasetConverter):
+    r"""Backward-compatible converter for legacy continual learning datasets."""
+
+
+@dataclass
 class SharegptDatasetConverter(DatasetConverter):
     def __call__(self, example: dict[str, Any]) -> dict[str, Any]:
         tag_mapping = {
@@ -369,6 +374,7 @@ class OpenAIDatasetConverter(DatasetConverter):
 
 DATASET_CONVERTERS = {
     "alpaca": AlpacaDatasetConverter,
+    "cl": CLDatasetConverter,
     "sharegpt": SharegptDatasetConverter,
     "openai": OpenAIDatasetConverter,
 }
