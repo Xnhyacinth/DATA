@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, List, Optional
 from ...data import SFTDataCollatorWith4DAttentionMask, get_dataset, get_template_and_fix_tokenizer
 from ...extras.constants import IGNORE_INDEX
 from ...extras.misc import get_logits_processor
+from ...extras.packages import is_transformers_version_greater_than
 from ...extras.ploting import plot_loss
 from ...model import load_model, load_tokenizer
 from ..trainer_utils import create_modelcard_and_push
@@ -149,7 +150,16 @@ def run_cl(
 
     # Keyword arguments for `model.generate`
     gen_kwargs = generating_args.to_dict()
-    gen_kwargs["eos_token_id"] = [tokenizer.eos_token_id] + tokenizer.additional_special_tokens_ids
+    if is_transformers_version_greater_than("4.58.0"):
+        extra_ids = getattr(tokenizer, "additional_special_tokens_ids", None)
+        if not isinstance(extra_ids, list):
+            extra_special_tokens = getattr(tokenizer, "_extra_special_tokens", [])
+            string_tokens = [str(t) for t in extra_special_tokens]
+            extra_ids = tokenizer.convert_tokens_to_ids(string_tokens)
+        all_eos_ids = [tokenizer.eos_token_id] + [i for i in extra_ids if i != -1]
+        gen_kwargs["eos_token_id"] = list(dict.fromkeys(all_eos_ids))
+    else:
+        gen_kwargs["eos_token_id"] = [tokenizer.eos_token_id] + tokenizer.additional_special_tokens_ids
     gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
     gen_kwargs["logits_processor"] = get_logits_processor()
 
