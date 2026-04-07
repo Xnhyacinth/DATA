@@ -1,4 +1,4 @@
-pip install transformers==4.45.2
+pip install "transformers>=4.41.2"
 transformers_path=$(python -c "import os; import transformers; transformers_dir = os.path.dirname(transformers.__file__); print(transformers_dir)")
 echo $transformers_path
 

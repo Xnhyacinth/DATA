@@ -519,7 +519,13 @@ for part in "${parts[@]}"; do
     echo "dataset: ${dataset}"
     echo "eval_dataset: ${eval_dataset}"
 
-    succ=`CUDA_VISIBLE_DEVICES=${gpus} llamafactory-cli train \
+    # NOTE: previously we captured the whole stdout into `succ=...`, which makes training look "silent".
+    # We now stream logs to both terminal and a per-run log file under output_dir.
+    mkdir -p "${save_path}"
+    LOGFILE="${save_path}/train.log"
+    echo "log_file: ${LOGFILE}"
+
+    CUDA_VISIBLE_DEVICES=${gpus} llamafactory-cli train \
         --stage cl \
         --model_name_or_path ${model_name_or_path} \
         --dataset_dir ./data \
@@ -550,10 +556,11 @@ for part in "${parts[@]}"; do
         --seed ${seed} \
         --bf16 \
         --orders ${orders} \
-        ${extra_args} && echo "true" || echo "false"`
+        ${extra_args} 2>&1 | tee "${LOGFILE}"
+    train_status=${PIPESTATUS[0]}
     sleep 20
     bash config/rm.sh ${save_path} checkpoint
-    if [[ $succ != *true* ]]; then
+    if [ "${train_status}" -ne 0 ]; then
         echo "${part} error!"
         exit 1
     fi
