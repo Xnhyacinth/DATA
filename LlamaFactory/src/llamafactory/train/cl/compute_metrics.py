@@ -3,7 +3,10 @@ import json
 import os
 import argparse
 import logging
-from datasets import load_metric
+try:
+    from evaluate import load as load_metric
+except ImportError:
+    from datasets import load_metric  # type: ignore
 from .rouge import rouge_scorer
 from transformers import AutoTokenizer
 from fuzzywuzzy import fuzz

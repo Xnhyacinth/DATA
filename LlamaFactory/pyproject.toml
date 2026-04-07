@@ -69,6 +69,7 @@ dependencies = [
     "protobuf",
     "pyyaml",
     "pydantic",
+    "evaluate>=0.4.0",
     # api
     "uvicorn",
     "fastapi",
