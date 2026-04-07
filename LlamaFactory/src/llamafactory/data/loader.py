@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import random
 import re
 from typing import TYPE_CHECKING, Literal, Optional, Union
 
@@ -215,11 +216,22 @@ def _get_merged_dataset(
         return None
 
     datasets = {}
-    for dataset_name, dataset_attr in zip(dataset_names, get_dataset_list(dataset_names, data_args.dataset_dir)):
+    dataset_list = get_dataset_list(dataset_names, data_args.dataset_dir)
+    dataset_num = len(dataset_list)
+    for idx, (dataset_name, dataset_attr) in enumerate(zip(dataset_names, dataset_list)):
         if (stage == "rm" and dataset_attr.ranking is False) or (stage != "rm" and dataset_attr.ranking is True):
             raise ValueError("The dataset is not applicable in the current training stage.")
 
-        datasets[dataset_name] = _load_single_dataset(dataset_attr, model_args, data_args, training_args)
+        dataset = _load_single_dataset(dataset_attr, model_args, data_args, training_args)
+        if data_args.replay and idx < dataset_num - 1 and not return_dict:
+            total_num_examples = len(dataset)
+            random_indices = random.sample(range(total_num_examples), int(total_num_examples * 0.02))
+            logger.info_rank0(f"len random select: {len(random_indices)} for {dataset_attr.dataset_name}")
+            dataset = dataset.select(random_indices)
+        elif data_args.select:
+            dataset = dataset.select(range(data_args.select))
+
+        datasets[dataset_name] = dataset
 
     if return_dict:
         return datasets
