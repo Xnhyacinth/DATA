@@ -1,6 +1,9 @@
 
 
 export WANDB_API_KEY=
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+data_root="$(cd -- "${script_dir}/.." && pwd)"
+llamafactory_src="${data_root}/LlamaFactory/src"
 num_gpus=${1:-"1"}
 echo "GPU counts: ${num_gpus}"
 gpus=${2:-"8"}
@@ -525,7 +528,7 @@ for part in "${parts[@]}"; do
     LOGFILE="${save_path}/train.log"
     echo "log_file: ${LOGFILE}"
 
-    CUDA_VISIBLE_DEVICES=${gpus} llamafactory-cli train \
+    PYTHONPATH="${llamafactory_src}:${PYTHONPATH}" CUDA_VISIBLE_DEVICES=${gpus} python -m llamafactory.cli train \
         --stage cl \
         --model_name_or_path ${model_name_or_path} \
         --dataset_dir ./data \
