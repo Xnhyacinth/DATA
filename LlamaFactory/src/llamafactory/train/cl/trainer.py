@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from transformers import Seq2SeqTrainer
+from transformers import PreTrainedTokenizerBase, Seq2SeqTrainer
 from typing_extensions import override
 
 from ...extras.constants import IGNORE_INDEX
@@ -102,7 +102,15 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     def __init__(
         self, finetuning_args: "FinetuningArguments", processor: Optional["ProcessorMixin"], **kwargs
     ) -> None:
+        if "tokenizer" in kwargs:
+            kwargs["processing_class"] = kwargs.pop("tokenizer")
+
         super().__init__(**kwargs)
+        self.tokenizer = (
+            self.processing_class
+            if isinstance(self.processing_class, PreTrainedTokenizerBase)
+            else getattr(self.processing_class, "tokenizer", self.processing_class)
+        )
         self.finetuning_args = finetuning_args
         self.args.restore = self.finetuning_args.restore
         
