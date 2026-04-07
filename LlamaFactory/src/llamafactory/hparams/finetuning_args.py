@@ -608,9 +608,14 @@ class FinetuningArguments(
         default=None,
         metadata={"help": "Whether or not to skip MLP modules in DATA injection."},
     )
-    project: int | None = field(
+    cl_project: int | None = field(
         default=None,
-        metadata={"help": "Projection length used by continual-learning variants."},
+        metadata={
+            "help": (
+                "Projection length used by continual-learning variants. "
+                "Use `--cl_project` to avoid conflicting with TrainingArguments `--project`."
+            )
+        },
     )
 
     def __post_init__(self):
@@ -629,7 +634,7 @@ class FinetuningArguments(
         self.apollo_target: list[str] = split_arg(self.apollo_target)
         self.use_ref_model = self.stage == "dpo" and self.pref_loss not in ["orpo", "simpo"]
 
-        assert self.finetuning_type in ["lora", "oft", "freeze", "full"], "Invalid fine-tuning method."
+        assert self.finetuning_type in ["lora", "oft", "freeze", "full", "data"], "Invalid fine-tuning method."
         assert self.ref_model_quantization_bit in [None, 8, 4], "We only accept 4-bit or 8-bit quantization."
         assert self.reward_model_quantization_bit in [None, 8, 4], "We only accept 4-bit or 8-bit quantization."
 

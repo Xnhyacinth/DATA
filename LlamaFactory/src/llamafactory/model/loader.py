@@ -173,7 +173,7 @@ def load_model(
             config.ortho_mu = finetuning_args.ortho_mu
             config.scale_bakebone = finetuning_args.scale_bakebone
             config.nomlp = finetuning_args.nomlp
-            config.project = finetuning_args.project
+            config.project = finetuning_args.cl_project
 
         init_kwargs["config"] = config
         init_kwargs["pretrained_model_name_or_path"] = model_args.model_name_or_path

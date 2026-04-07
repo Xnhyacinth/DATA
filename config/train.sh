@@ -358,7 +358,7 @@ if [ "$nomlp" != "0" ];then
 fi
 
 if [ "$project" != "0" ];then
-    extra_args="$extra_args --project ${project}"
+    extra_args="$extra_args --cl_project ${project}"
     save_path="${save_path}_project${project}"
     run_name="${run_name}_project${project}"
     merge_path="${merge_path}_project${project}"
