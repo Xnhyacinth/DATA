@@ -167,6 +167,13 @@ if [ "$model" = "robobrain2-3b" ] || [ "$model" = "robobrain2.0-3b" ] || [ "$mod
     # RoboBrain is a VLM-style checkpoint; freeze vision branch by default to reduce overhead for text-only CL tasks.
     extra_args="$extra_args --freeze_vision_tower True"
 fi
+if [ "$model" = "robobrain2.5-4b" ] || [ "$model" = "robobrain25-4b" ] || [ "$model" = "RoboBrain2.5-4B" ];then
+    # RoboBrain 2.5 (4B) checkpoint on Hugging Face.
+    # Ref: FlagOpen/RoboBrain2.5 announces the 2.5-4B release on HF.
+    model_name_or_path=BAAI/RoboBrain2.5-4B
+    cutoff_len=4096
+    extra_args="$extra_args --freeze_vision_tower True"
+fi
 if [ "$model" = "qwen2.5-7b" ];then
     model_name_or_path=Qwen/Qwen2.5-7B
     cutoff_len=4096
