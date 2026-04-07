@@ -36,6 +36,15 @@ def _qwen_target_modules(base_targets, include_mlp):
     return [name for name in base_targets if "MLP" not in name and "Experts" not in name and "SparseMoeBlock" not in name]
 
 
+def _raise_unsupported_vl_adaprompt(model_name: str) -> None:
+    raise NotImplementedError(
+        f"DATA adaprompt is not implemented for {model_name}. "
+        "The Qwen-VL backbones in upstream transformers do not expose "
+        "`prompt_init`/`post_prompt_init`, so they cannot reuse the patched "
+        "Qwen2/Llama adaprompt path yet."
+    )
+
+
 def _qwen_prompt_cleanup(model, num_layers, gap_layers, scale_bakebone):
     for e in range(num_layers // gap_layers):
         delattr(model, f"data_a_{e}")
@@ -144,7 +153,7 @@ if Qwen2_5_VLForConditionalGeneration is not None:
                 r2=self.config.data_rank2,
             )
             if self.config.adaprompt:
-                self.model.prompt_init()
+                _raise_unsupported_vl_adaprompt("Qwen2.5-VL")
 
         def unwrap_model(self):
             uninject_trainable_data(self, target_replace_module=QWEN2_5_VL_TARGET_MODULES)
@@ -179,7 +188,7 @@ if Qwen3VLForConditionalGeneration is not None:
                 r2=self.config.data_rank2,
             )
             if self.config.adaprompt:
-                self.model.prompt_init()
+                _raise_unsupported_vl_adaprompt("Qwen3-VL")
 
         def unwrap_model(self):
             uninject_trainable_data(self, target_replace_module=QWEN3_VL_TARGET_MODULES)
@@ -214,7 +223,7 @@ if Qwen3VLMoeForConditionalGeneration is not None:
                 r2=self.config.data_rank2,
             )
             if self.config.adaprompt:
-                self.model.prompt_init()
+                _raise_unsupported_vl_adaprompt("Qwen3-VL-MoE")
 
         def unwrap_model(self):
             uninject_trainable_data(self, target_replace_module=QWEN3_VL_MOE_TARGET_MODULES)
