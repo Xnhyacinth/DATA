@@ -204,8 +204,21 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             `torch.Tensor`: The tensor with training loss on this batch.
         """
         model.train()
-        # if self.finetuning_args.adaprompt:
-        task_id = inputs.pop("task_id")
+        task_id = inputs.pop("task_id", None)
+        if task_id is not None:
+            if isinstance(task_id, torch.Tensor):
+                task_id_value = int(task_id[0].item()) if task_id.numel() > 0 else 0
+            else:
+                task_id_value = int(task_id)
+
+            target_model = unwrap_model(model)
+            if hasattr(target_model, "model"):
+                setattr(target_model.model, "task_id", task_id_value)
+            if hasattr(target_model, "encoder"):
+                setattr(target_model.encoder, "task_id", task_id_value)
+            if hasattr(target_model, "decoder"):
+                setattr(target_model.decoder, "task_id", task_id_value)
+
         # inputs = {key: inputs for key in ("input_ids", "attention_mask", "labels", "token_type_ids", "decoder_input_ids")}
         inputs = self._prepare_inputs(inputs)
 
@@ -246,6 +259,14 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
         with self.compute_loss_context_manager():
             loss = self.compute_loss(model, inputs)
+
+        if not loss.requires_grad:
+            trainable_names = [name for name, param in unwrap_model(model).named_parameters() if param.requires_grad]
+            raise RuntimeError(
+                "Loss has no grad_fn in DATA training. "
+                f"Trainable parameter count: {len(trainable_names)}. "
+                f"Sample trainable params: {trainable_names[:20]}"
+            )
 
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training

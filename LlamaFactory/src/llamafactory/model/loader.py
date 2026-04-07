@@ -32,6 +32,7 @@ from ..extras.misc import count_parameters, skip_check_imports, try_download_mod
 from ..extras.packages import is_torch_version_greater_than
 from .adapter import init_adapter
 from .data import LlamaDATA, Qwen2DATA, T5DATA
+from .data import Qwen2_5_VLDATA, Qwen3VLDATA, Qwen3VLMoeDATA
 from .model_utils.ktransformers import load_kt_pretrained_model
 from .model_utils.liger_kernel import apply_liger_kernel
 from .model_utils.checkpointing import prepare_model_for_training
@@ -54,6 +55,29 @@ logger = logging.get_logger(__name__)
 class TokenizerModule(TypedDict):
     tokenizer: "PreTrainedTokenizer"
     processor: Optional["ProcessorMixin"]
+
+
+def _normalize_model_name(model_name: str) -> str:
+    return model_name.lower().replace("-", "_").replace(".", "_").replace("/", "_")
+
+
+def _get_data_model_class(model_type: str, model_name: str):
+    normalized_model_type = _normalize_model_name(model_type)
+    normalized_model_name = _normalize_model_name(model_name)
+    candidates = [normalized_model_type, normalized_model_name]
+    if any("qwen3_vl_moe" in candidate for candidate in candidates) and Qwen3VLMoeDATA is not None:
+        return Qwen3VLMoeDATA
+    if any("qwen3_vl" in candidate for candidate in candidates) and Qwen3VLDATA is not None:
+        return Qwen3VLDATA
+    if any("qwen2_5_vl" in candidate for candidate in candidates) and Qwen2_5_VLDATA is not None:
+        return Qwen2_5_VLDATA
+    if any("t5" in candidate for candidate in candidates):
+        return T5DATA
+    if any("llama" in candidate for candidate in candidates):
+        return LlamaDATA
+    if any("qwen2" in candidate for candidate in candidates):
+        return Qwen2DATA
+    return None
 
 
 def _get_init_kwargs(model_args: "ModelArguments") -> dict[str, Any]:
@@ -193,13 +217,8 @@ def load_model(
             elif type(config) in AutoModelForTextToWaveform._model_mapping.keys():  # audio-text for qwen omni
                 load_class = AutoModelForTextToWaveform
             elif "data" in model_args.model_name_or_path.lower():
-                if "t5" in model_args.model_name_or_path.lower():
-                    load_class = T5DATA
-                elif "llama" in model_args.model_name_or_path.lower():
-                    load_class = LlamaDATA
-                elif "qwen2" in model_args.model_name_or_path.lower():
-                    load_class = Qwen2DATA
-                else:
+                load_class = _get_data_model_class(getattr(config, "model_type", ""), model_args.model_name_or_path)
+                if load_class is None:
                     load_class = AutoModelForCausalLM
             else:
                 load_class = AutoModelForCausalLM
@@ -221,12 +240,9 @@ def load_model(
     # Wrap with DATA adapters if requested via finetuning_type or explicit flag.
     if finetuning_args.finetuning_type == "data" or finetuning_args.is_data:
         base_model = model
-        if "t5" in getattr(config, "model_type", "") or "t5" in model_args.model_name_or_path.lower():
-            model = T5DATA(base_model.config)
-        elif "llama" in getattr(config, "model_type", "") or "llama" in model_args.model_name_or_path.lower():
-            model = LlamaDATA(base_model.config)
-        elif "qwen2" in getattr(config, "model_type", "") or "qwen2" in model_args.model_name_or_path.lower():
-            model = Qwen2DATA(base_model.config)
+        data_model_class = _get_data_model_class(getattr(config, "model_type", ""), model_args.model_name_or_path)
+        if data_model_class is not None:
+            model = data_model_class(base_model.config)
         else:
             # Fallback: keep base and let adapter decide
             model = base_model

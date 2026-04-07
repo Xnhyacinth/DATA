@@ -66,6 +66,7 @@ def inject_trainable_data(
 
     require_grad_params = []
     names = []
+    matched_modules = set()
 
     for layer in model.modules():
         for _, param in layer.named_parameters():
@@ -75,6 +76,7 @@ def inject_trainable_data(
         # for _, param in _module.named_parameters():
         #     breakpoint()
         if _module.__class__.__name__ in target_replace_module:
+            matched_modules.add(_module.__class__.__name__)
             
             for name, _child_module in _module.named_modules():
                 if _child_module.__class__.__name__ == "Linear":
@@ -113,5 +115,12 @@ def inject_trainable_data(
                     _module._modules[name].data_up2.weight.requires_grad = True
                     _module._modules[name].data_down2.weight.requires_grad = True
                     names.append(name)
+
+    if len(require_grad_params) == 0:
+        raise ValueError(
+            "DATA injection did not match any Linear children. "
+            f"Requested target modules: {target_replace_module}. "
+            f"Matched parent module classes: {sorted(matched_modules)}"
+        )
     
     return require_grad_params, names

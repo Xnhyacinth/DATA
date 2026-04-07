@@ -10,6 +10,56 @@ from .inject_data import *
 from time import time
 import logging
 
+Qwen2_5_VLDATA = None
+Qwen3VLDATA = None
+Qwen3VLMoeDATA = None
+
+try:
+    from transformers import Qwen2_5_VLForConditionalGeneration
+except ImportError:
+    Qwen2_5_VLForConditionalGeneration = None
+
+try:
+    from transformers import Qwen3VLForConditionalGeneration
+except ImportError:
+    Qwen3VLForConditionalGeneration = None
+
+try:
+    from transformers import Qwen3VLMoeForConditionalGeneration
+except ImportError:
+    Qwen3VLMoeForConditionalGeneration = None
+
+
+def _qwen_target_modules(base_targets, include_mlp):
+    if include_mlp:
+        return base_targets
+    return [name for name in base_targets if "MLP" not in name and "Experts" not in name and "SparseMoeBlock" not in name]
+
+
+def _qwen_prompt_cleanup(model, num_layers, gap_layers, scale_bakebone):
+    for e in range(num_layers // gap_layers):
+        delattr(model, f"data_a_{e}")
+        delattr(model, f"data_k_{e}")
+        delattr(model, f"data_w_{e}")
+        delattr(model, f"data_w2_{e}")
+        delattr(model, f"data_a2_{e}")
+        delattr(model, f"data_k2_{e}")
+        if scale_bakebone:
+            delattr(model, f"data_w3_{e}")
+            delattr(model, f"data_a3_{e}")
+            delattr(model, f"data_k3_{e}")
+
+
+QWEN2_TARGET_MODULES = ["Qwen2MLP", "Qwen2SdpaAttention", "Qwen2Attention", "Qwen2FlashAttention2"]
+QWEN2_5_VL_TARGET_MODULES = ["Qwen2_5_VLMLP", "Qwen2MLP", "Qwen2_5_VLAttention"]
+QWEN3_VL_TARGET_MODULES = ["Qwen3VLTextMLP", "Qwen3VLTextAttention"]
+QWEN3_VL_MOE_TARGET_MODULES = [
+    "Qwen3VLMoeTextMLP",
+    "Qwen3VLMoeTextAttention",
+    "Qwen3VLMoeTextExperts",
+    "Qwen3VLMoeTextSparseMoeBlock",
+]
+
 class Qwen2DATA(Qwen2ForCausalLM):
     def __init__(self, config):
         super().__init__(config)
@@ -78,6 +128,111 @@ class Qwen2DATA(Qwen2ForCausalLM):
     def generate(self, **kwargs):
         # kwargs.pop('labels', None)
         return super().generate(**kwargs)
+
+
+if Qwen2_5_VLForConditionalGeneration is not None:
+    class Qwen2_5_VLDATA(Qwen2_5_VLForConditionalGeneration):
+        def __init__(self, config):
+            super().__init__(config)
+            self.wrap_model()
+
+        def wrap_model(self):
+            inject_trainable_data(
+                self,
+                target_replace_module=_qwen_target_modules(QWEN2_5_VL_TARGET_MODULES, not self.config.nomlp),
+                r=self.config.data_rank1,
+                r2=self.config.data_rank2,
+            )
+            if self.config.adaprompt:
+                self.model.prompt_init()
+
+        def unwrap_model(self):
+            uninject_trainable_data(self, target_replace_module=QWEN2_5_VL_TARGET_MODULES)
+            if self.config.adaprompt:
+                _qwen_prompt_cleanup(
+                    self.model, self.config.num_hidden_layers, self.config.gap_layers, self.config.scale_bakebone
+                )
+
+        def load_model(self, state_dict):
+            self.unwrap_model()
+            self.load_state_dict(state_dict)
+            self.wrap_model()
+
+        def forward(self, *args, **kwargs):
+            return super().forward(*args, **kwargs)
+
+        def generate(self, **kwargs):
+            return super().generate(**kwargs)
+
+
+if Qwen3VLForConditionalGeneration is not None:
+    class Qwen3VLDATA(Qwen3VLForConditionalGeneration):
+        def __init__(self, config):
+            super().__init__(config)
+            self.wrap_model()
+
+        def wrap_model(self):
+            inject_trainable_data(
+                self,
+                target_replace_module=_qwen_target_modules(QWEN3_VL_TARGET_MODULES, not self.config.nomlp),
+                r=self.config.data_rank1,
+                r2=self.config.data_rank2,
+            )
+            if self.config.adaprompt:
+                self.model.prompt_init()
+
+        def unwrap_model(self):
+            uninject_trainable_data(self, target_replace_module=QWEN3_VL_TARGET_MODULES)
+            if self.config.adaprompt:
+                _qwen_prompt_cleanup(
+                    self.model, self.config.num_hidden_layers, self.config.gap_layers, self.config.scale_bakebone
+                )
+
+        def load_model(self, state_dict):
+            self.unwrap_model()
+            self.load_state_dict(state_dict)
+            self.wrap_model()
+
+        def forward(self, *args, **kwargs):
+            return super().forward(*args, **kwargs)
+
+        def generate(self, **kwargs):
+            return super().generate(**kwargs)
+
+
+if Qwen3VLMoeForConditionalGeneration is not None:
+    class Qwen3VLMoeDATA(Qwen3VLMoeForConditionalGeneration):
+        def __init__(self, config):
+            super().__init__(config)
+            self.wrap_model()
+
+        def wrap_model(self):
+            inject_trainable_data(
+                self,
+                target_replace_module=_qwen_target_modules(QWEN3_VL_MOE_TARGET_MODULES, not self.config.nomlp),
+                r=self.config.data_rank1,
+                r2=self.config.data_rank2,
+            )
+            if self.config.adaprompt:
+                self.model.prompt_init()
+
+        def unwrap_model(self):
+            uninject_trainable_data(self, target_replace_module=QWEN3_VL_MOE_TARGET_MODULES)
+            if self.config.adaprompt:
+                _qwen_prompt_cleanup(
+                    self.model, self.config.num_hidden_layers, self.config.gap_layers, self.config.scale_bakebone
+                )
+
+        def load_model(self, state_dict):
+            self.unwrap_model()
+            self.load_state_dict(state_dict)
+            self.wrap_model()
+
+        def forward(self, *args, **kwargs):
+            return super().forward(*args, **kwargs)
+
+        def generate(self, **kwargs):
+            return super().generate(**kwargs)
 
 
 class LlamaDATA(LlamaForCausalLM):
