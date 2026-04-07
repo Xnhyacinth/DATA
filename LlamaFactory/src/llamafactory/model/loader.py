@@ -182,7 +182,8 @@ def load_model(
             model = load_unsloth_pretrained_model(config, model_args, finetuning_args)
 
     if model is None and not lazy_load:
-        if finetuning_args.is_data and finetuning_args.adaprompt:
+        if finetuning_args.is_data:
+            config.is_data = finetuning_args.is_data
             config.adaprompt = finetuning_args.adaprompt
             config.n_tasks = getattr(finetuning_args, "n_tasks", getattr(config, "n_tasks", None))
             config.task_id = finetuning_args.task_id
@@ -248,6 +249,10 @@ def load_model(
             model = base_model
         if model is not base_model:
             model.load_state_dict(base_model.state_dict(), strict=False)
+            if getattr(finetuning_args, "adaprompt", False) and hasattr(model, "model"):
+                post_prompt_init = getattr(model.model, "post_prompt_init", None)
+                if callable(post_prompt_init):
+                    post_prompt_init()
 
     model = init_adapter(config, model, model_args, finetuning_args, is_trainable)
 

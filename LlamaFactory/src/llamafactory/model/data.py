@@ -153,7 +153,7 @@ if Qwen2_5_VLForConditionalGeneration is not None:
                 r2=self.config.data_rank2,
             )
             if self.config.adaprompt:
-                _raise_unsupported_vl_adaprompt("Qwen2.5-VL")
+                self.model.prompt_init()
 
         def unwrap_model(self):
             uninject_trainable_data(self, target_replace_module=QWEN2_5_VL_TARGET_MODULES)
@@ -188,7 +188,7 @@ if Qwen3VLForConditionalGeneration is not None:
                 r2=self.config.data_rank2,
             )
             if self.config.adaprompt:
-                _raise_unsupported_vl_adaprompt("Qwen3-VL")
+                self.model.prompt_init()
 
         def unwrap_model(self):
             uninject_trainable_data(self, target_replace_module=QWEN3_VL_TARGET_MODULES)
