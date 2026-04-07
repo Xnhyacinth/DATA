@@ -34,6 +34,7 @@ from .adapter import init_adapter
 from .data import LlamaDATA, Qwen2DATA, T5DATA
 from .model_utils.ktransformers import load_kt_pretrained_model
 from .model_utils.liger_kernel import apply_liger_kernel
+from .model_utils.checkpointing import prepare_model_for_training
 from .model_utils.misc import register_autoclass
 from .model_utils.mod import convert_pretrained_model_to_mod, load_mod_pretrained_model
 from .model_utils.unsloth import load_unsloth_pretrained_model
@@ -262,6 +263,9 @@ def load_model(
         logger.info_rank0("Fine-tuning method: DATA (freeze backbone, train injected data parameters only)")
         for name, param in model.named_parameters():
             param.requires_grad_("data_" in name)
+
+        if is_trainable:
+            prepare_model_for_training(model, model_args)
 
     if not is_trainable:
         model.requires_grad_(False)
