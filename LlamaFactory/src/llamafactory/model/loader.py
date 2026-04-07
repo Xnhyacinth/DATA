@@ -258,6 +258,11 @@ def load_model(
                 "See https://github.com/pytorch/pytorch/issues/166122"
             )
 
+    if finetuning_args.finetuning_type == "data" or finetuning_args.is_data:
+        logger.info_rank0("Fine-tuning method: DATA (freeze backbone, train injected data parameters only)")
+        for name, param in model.named_parameters():
+            param.requires_grad_("data_" in name)
+
     if not is_trainable:
         model.requires_grad_(False)
         model.eval()
