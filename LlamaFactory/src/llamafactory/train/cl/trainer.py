@@ -261,7 +261,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         # logger.info(f"l2_loss: {l2_loss.item()}; accuracy_loss: {loss.item()}; λ2: {lamda}")
         # loss = loss + l2_loss * lamda
 
-        if self.use_apex:
+        if getattr(self, "use_apex", False):
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         else:
