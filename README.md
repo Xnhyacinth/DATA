@@ -44,6 +44,16 @@ bash config/run.sh 2 0,1 llama2-7b lora 16 constant 1e-4 0 all 0 8 -1 0 0 0 0 0 
 bash config/run.sh 2 0,1 llama2-7b data 1 constant 1e-4 0 all 0 8 -1 2 8 0 0 8 1 1 4 0 0 0 0
 ```
 
+### RoboBrain 2.0-3B
+
+#### LoRA
+
+```shell
+# Alias in this repo: robobrain2-3b -> BAAI/RoboBrain2.0-3B
+# (You can also pass the full HF id `BAAI/RoboBrain2.0-3B` as the 3rd arg.)
+bash config/run.sh 2 0,1 robobrain2-3b lora 8 constant 1e-4 0 all 0 8 -1 0 0 0 0 0 0 0 0 0 0 0 0
+```
+
 ### Details
 
 Coming Soon!

@@ -153,7 +153,13 @@ def load_model(
         if model_args.mixture_of_depths == "load":
             model = load_mod_pretrained_model(**init_kwargs)
         else:
-            if type(config) in AutoModelForVision2Seq._model_mapping.keys():  # assume built-in models
+            # Prefer explicit `auto_map` for remote-code models (e.g. VLMs that register AutoModelForVision2Seq).
+            # The previous logic only detected built-in Vision2Seq configs via `_model_mapping`, which misses
+            # custom configs from `trust_remote_code=True`.
+            auto_map = getattr(config, "auto_map", None) or {}
+            if isinstance(auto_map, dict) and ("AutoModelForVision2Seq" in auto_map):
+                load_class = AutoModelForVision2Seq
+            elif type(config) in AutoModelForVision2Seq._model_mapping.keys():  # built-in Vision2Seq models
                 load_class = AutoModelForVision2Seq
             elif 'data' in model_args.model_name_or_path.lower():
                 if 't5' in model_args.model_name_or_path.lower():

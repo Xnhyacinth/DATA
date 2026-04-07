@@ -75,6 +75,7 @@ def load_model_vllm(model_args, tokenizer):
     config = load_config(model_args)  # may download model from ms hub
     infer_dtype = infer_optim_dtype(model_dtype=getattr(config, "torch_dtype", None))
     infer_dtype = str(infer_dtype).split(".")[-1]
+    max_model_len = getattr(config, "max_position_embeddings", None) or getattr(config, "max_model_len", None) or 4096
     engine_args = {
         "model": model_args.model_name_or_path,
         "trust_remote_code": True,
@@ -82,7 +83,7 @@ def load_model_vllm(model_args, tokenizer):
         "tensor_parallel_size": get_device_count() or 1,
         "gpu_memory_utilization": model_args.vllm_gpu_util,
         "enforce_eager": model_args.vllm_enforce_eager,
-        "max_model_len": 4096 if "70B" in model_args.model_name_or_path else config.max_position_embeddings
+        "max_model_len": 4096 if "70B" in model_args.model_name_or_path else max_model_len
     }
     return LLM(**engine_args)
 

@@ -44,6 +44,11 @@ def find_all_linear_modules(model: "PreTrainedModel", freeze_vision_tower: bool)
             forbidden_modules.add("visual")
         else:
             forbidden_modules.add("vision_tower")
+        # Generic VLM support: many remote-code models use different attribute names
+        # (e.g. vision_encoder/vision_model/visual_encoder). We conservatively skip
+        # modules whose names include these substrings when the user requests freezing.
+        forbidden_modules.add("vision")
+        forbidden_modules.add("visual")
 
     module_names = set()
     for name, module in model.named_modules():

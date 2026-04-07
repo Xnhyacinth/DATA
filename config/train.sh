@@ -159,6 +159,14 @@ if [ "$model" = "qwen2.5-3b" ];then
     model_name_or_path=Qwen/Qwen2.5-3B
     cutoff_len=4096
 fi
+if [ "$model" = "robobrain2-3b" ] || [ "$model" = "robobrain2.0-3b" ] || [ "$model" = "RoboBrain2.0-3B" ];then
+    # RoboBrain 2.0 (3B) checkpoint on Hugging Face.
+    # Note: this repo's LLaMA-Factory loader sets `trust_remote_code=True` by default.
+    model_name_or_path=BAAI/RoboBrain2.0-3B
+    cutoff_len=4096
+    # RoboBrain is a VLM-style checkpoint; freeze vision branch by default to reduce overhead for text-only CL tasks.
+    extra_args="$extra_args --freeze_vision_tower True"
+fi
 if [ "$model" = "qwen2.5-7b" ];then
     model_name_or_path=Qwen/Qwen2.5-7B
     cutoff_len=4096
@@ -370,7 +378,13 @@ if [ "$mode" == "eval" ];then
 fi
 
 if [[ $model_name_or_path != *t5* ]]; then
-    extra_args="${extra_args} --flash_attn fa2"
+    # Default to fa2 for decoder-only LLMs in this repo, but keep RoboBrain on "auto"
+    # since remote-code models may not implement FlashAttention2 hooks.
+    if [[ "${model_name_or_path,,}" != *robobrain* ]]; then
+        extra_args="${extra_args} --flash_attn fa2"
+    else
+        extra_args="${extra_args} --flash_attn auto"
+    fi
 fi
 
 save_prefix=${save_path}

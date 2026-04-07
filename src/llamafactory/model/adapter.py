@@ -253,7 +253,9 @@ def _setup_lora_tuning(
                     peft_kwargs["init_lora_weights"] = "pissa_niter_{}".format(finetuning_args.pissa_iter)
 
             lora_config = LoraConfig(
-                task_type=TaskType.CAUSAL_LM,
+                # Use Seq2Seq task type for encoder-decoder backbones (e.g. some VLM/Seq2Seq checkpoints),
+                # otherwise default to decoder-only causal LM.
+                task_type=TaskType.SEQ_2_SEQ_LM if getattr(config, "is_encoder_decoder", False) else TaskType.CAUSAL_LM,
                 inference_mode=False,
                 **peft_kwargs,
             )

@@ -191,7 +191,9 @@ def patch_target_modules(
         elif model_type == "qwen2_vl":
             return "^(?!.*visual).*(?:{}).*".format("|".join(target_modules))
         else:
-            return target_modules
+            # Generic VLM support for remote-code models:
+            # if the model exposes vision modules with non-standard names, exclude common substrings.
+            return "^(?!.*(vision|visual|image)).*(?:{}).*".format("|".join(target_modules))
     else:
         if model_type == "qwen2_vl":
             return "^(?!.*patch_embed).*(?:{}).*".format("|".join(target_modules))
