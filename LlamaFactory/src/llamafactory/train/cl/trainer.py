@@ -180,7 +180,12 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     #         if hasattr(module, 'train_mode'):
     #             module.train_mode = train_mode
     
-    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+    def training_step(
+        self,
+        model: nn.Module,
+        inputs: Dict[str, Union[torch.Tensor, Any]],
+        num_items_in_batch: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
 
