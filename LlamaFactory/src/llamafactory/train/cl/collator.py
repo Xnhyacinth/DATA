@@ -22,8 +22,15 @@ class DataCollatorForUIE(SFTDataCollatorWith4DAttentionMask):
 
     def __call__(self, features: Sequence[Dict[str, Any]]) -> Dict[str, "torch.Tensor"]:
         model_name = self.model.config._name_or_path
-        # print(model_name)
-        features = super().__call__(features)
+        sanitized_features = []
+        for feature in features:
+            sanitized_feature = dict(feature)
+            sanitized_feature.pop("Task", None)
+            sanitized_feature.pop("Dataset", None)
+            sanitized_feature.pop("Instance", None)
+            sanitized_features.append(sanitized_feature)
+
+        features = super().__call__(sanitized_features)
         if check_model(model_name, SUPPORTED_SEQ2SEQ_MODELS):
             decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=features["labels"])
             features["decoder_input_ids"] = decoder_input_ids
@@ -78,4 +85,3 @@ class DataCollatorForUIE(SFTDataCollatorWith4DAttentionMask):
             self._save_samples(model_inputs, sources, labels)
 
         return model_inputs
-
