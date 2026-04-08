@@ -1,7 +1,12 @@
-py_package_path=$(python -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")
+#!/usr/bin/env bash
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python_bin="${PYTHON_BIN:-python}"
+
+py_package_path=$("${python_bin}" -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")
 echo $py_package_path
-python remove_patch.py --package_path $py_package_path/transformers/models/llama --patch_files modeling_llama.py
-python remove_patch.py --package_path $py_package_path/transformers/models/qwen2_5_vl --patch_files modeling_qwen2_5_vl.py
-python remove_patch.py --package_path $py_package_path/transformers/models/qwen3_vl --patch_files modeling_qwen3_vl.py
-python remove_patch.py --package_path $py_package_path/transformers/models/t5 --patch_files modeling_t5.py
+"${python_bin}" "${script_dir}/remove_patch.py" --package_path "$py_package_path/transformers/models/llama" --patch_files modeling_llama.py
+"${python_bin}" "${script_dir}/remove_patch.py" --package_path "$py_package_path/transformers/models/qwen2_5_vl" --patch_files modeling_qwen2_5_vl.py
+"${python_bin}" "${script_dir}/remove_patch.py" --package_path "$py_package_path/transformers/models/qwen3_vl" --patch_files modeling_qwen3_vl.py
+"${python_bin}" "${script_dir}/remove_patch.py" --package_path "$py_package_path/transformers/models/t5" --patch_files modeling_t5.py
 # We no longer patch `transformers/trainer.py` in install.sh.
