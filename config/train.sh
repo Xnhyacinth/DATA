@@ -528,7 +528,13 @@ for part in "${parts[@]}"; do
     LOGFILE="${save_path}/train.log"
     echo "log_file: ${LOGFILE}"
 
-    PYTHONPATH="${llamafactory_src}:${PYTHONPATH}" CUDA_VISIBLE_DEVICES=${gpus} python -m llamafactory.cli train \
+    report_to="${REPORT_TO:-wandb}"
+    if [ "${WANDB_DISABLED:-}" = "true" ] || [ "${WANDB_MODE:-}" = "disabled" ]; then
+        report_to="${REPORT_TO:-none}"
+    fi
+    python_bin="${PYTHON_BIN:-python}"
+
+    PYTHONPATH="${llamafactory_src}:${PYTHONPATH}" CUDA_VISIBLE_DEVICES=${gpus} ${python_bin} -m llamafactory.cli train \
         --stage cl \
         --model_name_or_path ${model_name_or_path} \
         --dataset_dir ./data \
@@ -553,7 +559,7 @@ for part in "${parts[@]}"; do
         --ddp_timeout 180000000 \
         --max_new_tokens ${max_new_tokens} \
         --plot_loss \
-        --report_to wandb \
+        --report_to ${report_to} \
         --remove_unused_columns False \
         --run_name ${run_name} \
         --seed ${seed} \

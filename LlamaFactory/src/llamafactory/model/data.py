@@ -1,33 +1,52 @@
+import copy
 from copy import deepcopy
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.jit
-from transformers import T5ForConditionalGeneration, LlamaForCausalLM, Qwen2ForCausalLM
 import PIL
 import torchvision.transforms as transforms
 from .inject_data import *
 from time import time
 import logging
 
+
+def _load_transformers_class(class_name: str, module_name: str, required: bool = True):
+    try:
+        import transformers
+
+        return getattr(transformers, class_name)
+    except (ImportError, AttributeError):
+        try:
+            module = __import__(
+                f"transformers.models.{module_name}.modeling_{module_name}",
+                fromlist=[class_name],
+            )
+            return getattr(module, class_name)
+        except (ImportError, AttributeError):
+            if required:
+                raise
+            return None
+
+
+T5ForConditionalGeneration = _load_transformers_class("T5ForConditionalGeneration", "t5")
+LlamaForCausalLM = _load_transformers_class("LlamaForCausalLM", "llama")
+Qwen2ForCausalLM = _load_transformers_class("Qwen2ForCausalLM", "qwen2")
+
 Qwen2_5_VLDATA = None
 Qwen3VLDATA = None
 Qwen3VLMoeDATA = None
 
-try:
-    from transformers import Qwen2_5_VLForConditionalGeneration
-except ImportError:
-    Qwen2_5_VLForConditionalGeneration = None
-
-try:
-    from transformers import Qwen3VLForConditionalGeneration
-except ImportError:
-    Qwen3VLForConditionalGeneration = None
-
-try:
-    from transformers import Qwen3VLMoeForConditionalGeneration
-except ImportError:
-    Qwen3VLMoeForConditionalGeneration = None
+Qwen2_5_VLForConditionalGeneration = _load_transformers_class(
+    "Qwen2_5_VLForConditionalGeneration", "qwen2_5_vl", required=False
+)
+Qwen3VLForConditionalGeneration = _load_transformers_class(
+    "Qwen3VLForConditionalGeneration", "qwen3_vl", required=False
+)
+Qwen3VLMoeForConditionalGeneration = _load_transformers_class(
+    "Qwen3VLMoeForConditionalGeneration", "qwen3_vl_moe", required=False
+)
 
 
 def _qwen_target_modules(base_targets, include_mlp):
