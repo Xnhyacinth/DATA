@@ -15,6 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 from copy import deepcopy
 import json
 import os
@@ -379,7 +380,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                     else:
                         self.model.model.task_id = task_id
 
-                    loss, generated_tokens, _ = super().prediction_step(
+                    loss, generated_tokens, _ = self._safe_seq2seq_prediction_step(
                         model, task_specific_inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys
                     )
                     # if generated_tokens.shape[-1] < gen_config.max_length:
@@ -401,11 +402,11 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 else:
                     self.model.model.task_id = task_ids[0]
 
-                loss, generated_tokens, _ = super().prediction_step(  # ignore the returned labels (may be truncated)
+                loss, generated_tokens, _ = self._safe_seq2seq_prediction_step(  # ignore the returned labels (may be truncated)
                     model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys
                 )
         else:
-            loss, generated_tokens, _ = super().prediction_step(  # ignore the returned labels (may be truncated)
+            loss, generated_tokens, _ = self._safe_seq2seq_prediction_step(  # ignore the returned labels (may be truncated)
                 model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys
             )
         # if 't5' in model.config.architectures[0].lower():
@@ -415,6 +416,91 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         if generated_tokens is not None and self.args.predict_with_generate and not 't5' in model.config.architectures[0].lower():
             generated_tokens[:, :prompt_len] = self.tokenizer.pad_token_id
             generated_tokens = generated_tokens.contiguous()
+
+        return loss, generated_tokens, labels
+
+    def _safe_seq2seq_prediction_step(
+        self,
+        model: "torch.nn.Module",
+        inputs: Dict[str, Union["torch.Tensor", Any]],
+        prediction_loss_only: bool,
+        ignore_keys: Optional[List[str]] = None,
+    ) -> Tuple[Optional[float], Optional["torch.Tensor"], Optional["torch.Tensor"]]:
+        """
+        Backward-compatible variant of Seq2SeqTrainer.prediction_step.
+
+        Some transformers versions pass `labels` directly into `generate()`, which
+        breaks custom models whose `generate()` validates model kwargs strictly.
+        """
+        if not self.args.predict_with_generate or prediction_loss_only:
+            return super().prediction_step(
+                model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys
+            )
+
+        has_labels = "labels" in inputs
+        inputs = self._prepare_inputs(inputs)
+
+        gen_kwargs = self._gen_kwargs.copy() if hasattr(self, "_gen_kwargs") else {}
+        if "num_beams" in gen_kwargs and gen_kwargs["num_beams"] is None:
+            gen_kwargs.pop("num_beams")
+        if "max_length" in gen_kwargs and gen_kwargs["max_length"] is None:
+            gen_kwargs.pop("max_length")
+
+        default_synced_gpus = is_deepspeed_zero3_enabled() or is_fsdp_managed_module(self.model)
+        gen_kwargs["synced_gpus"] = gen_kwargs.get("synced_gpus", default_synced_gpus)
+
+        generation_inputs = inputs.copy()
+        generation_inputs.pop("labels", None)
+        if (
+            "decoder_input_ids" in generation_inputs
+            and "labels" in inputs
+            and inputs["labels"].shape == generation_inputs["decoder_input_ids"].shape
+        ):
+            generation_inputs.pop("decoder_input_ids", None)
+            generation_inputs.pop("decoder_attention_mask", None)
+
+        summon_full_params_context = (
+            FullyShardedDataParallel.summon_full_params(self.model)
+            if isinstance(self.model, FullyShardedDataParallel)
+            else contextlib.nullcontext()
+        )
+
+        with summon_full_params_context:
+            generated_tokens = self.model.generate(**generation_inputs, **gen_kwargs)
+
+        if self.model.generation_config._from_model_config:
+            self.model.generation_config._from_model_config = False
+
+        gen_config = self.model.generation_config
+        default_gen_config = gen_config._get_default_generation_params()
+        gen_config.update(**default_gen_config, defaults_only=True)
+        if generated_tokens.shape[-1] < gen_config.max_length:
+            generated_tokens = self._pad_tensors_to_max_len(generated_tokens, gen_config.max_length)
+        elif gen_config.max_new_tokens is not None and generated_tokens.shape[-1] < gen_config.max_new_tokens + 1:
+            generated_tokens = self._pad_tensors_to_max_len(generated_tokens, gen_config.max_new_tokens + 1)
+
+        with torch.no_grad():
+            if has_labels:
+                with self.compute_loss_context_manager():
+                    outputs = model(**inputs)
+                if self.label_smoother is not None:
+                    loss = self.label_smoother(outputs, inputs["labels"]).detach().mean()
+                else:
+                    loss = (outputs["loss"] if isinstance(outputs, dict) else outputs[0]).detach().mean()
+            else:
+                loss = None
+
+        if self.args.prediction_loss_only:
+            return loss, None, None
+
+        if has_labels:
+            labels = inputs["labels"]
+            if labels.shape[-1] < gen_config.max_length:
+                labels = self._pad_tensors_to_max_len(labels, gen_config.max_length)
+            elif gen_config.max_new_tokens is not None and labels.shape[-1] < gen_config.max_new_tokens + 1:
+                labels = self._pad_tensors_to_max_len(labels, gen_config.max_new_tokens + 1)
+        else:
+            labels = None
 
         return loss, generated_tokens, labels
 
