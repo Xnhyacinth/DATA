@@ -36,7 +36,24 @@ from ...modeling_outputs import (
     TokenClassifierOutput,
 )
 from ...modeling_utils import PreTrainedModel
-from ...pytorch_utils import ALL_LAYERNORM_LAYERS, find_pruneable_heads_and_indices, prune_linear_layer
+try:
+    # Newer transformers expose these here.
+    from ...pytorch_utils import ALL_LAYERNORM_LAYERS, find_pruneable_heads_and_indices, prune_linear_layer
+except Exception:
+    # Fallback for environments where `find_pruneable_heads_and_indices` is missing.
+    from ...pytorch_utils import ALL_LAYERNORM_LAYERS, prune_linear_layer
+
+    def find_pruneable_heads_and_indices(*args, **kwargs):  # type: ignore[override]
+        """
+        Compatibility shim for older/stripped transformers builds that do not provide
+        `find_pruneable_heads_and_indices`. Calling this code path indicates a version
+        mismatch. Prefer to upgrade `transformers` to a version whose T5 modeling module
+        provides this utility. We fail fast if it ever gets used at runtime.
+        """
+        raise ImportError(
+            "transformers.pytorch_utils.find_pruneable_heads_and_indices is not available in this environment. "
+            "Please upgrade transformers to a recent version to enable T5 head pruning."
+        )
 from ...utils import (
     DUMMY_INPUTS,
     DUMMY_MASK,
