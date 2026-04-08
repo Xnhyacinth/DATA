@@ -149,7 +149,7 @@ def run_cl(
     )
 
     # Keyword arguments for `model.generate`
-    gen_kwargs = generating_args.to_dict()
+    gen_kwargs = generating_args.to_dict(obey_generation_config=True)
     if is_transformers_version_greater_than("4.58.0"):
         extra_ids = getattr(tokenizer, "additional_special_tokens_ids", None)
         if not isinstance(extra_ids, list):
@@ -162,6 +162,7 @@ def run_cl(
         gen_kwargs["eos_token_id"] = [tokenizer.eos_token_id] + tokenizer.additional_special_tokens_ids
     gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
     gen_kwargs["logits_processor"] = get_logits_processor()
+    gen_kwargs.pop("skip_special_tokens", None)
 
     # Training
     if training_args.do_train:

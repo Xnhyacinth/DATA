@@ -319,6 +319,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         Subclass and override to inject custom behavior.
         """
         labels = inputs["labels"] if "labels" in inputs else None
+        inputs = dict(inputs)
+        inputs.pop("rope_deltas", None)
         if self.args.predict_with_generate and not 't5' in model.config.architectures[0].lower():
             assert self.tokenizer.padding_side == "left", "This method only accepts left-padded tensor."
             labels = labels.detach().clone() if labels is not None else None  # backup labels
