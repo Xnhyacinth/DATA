@@ -71,11 +71,11 @@ def _get_data_model_class(model_type: str, model_name: str):
         return Qwen3VLDATA
     if any("qwen2_5_vl" in candidate for candidate in candidates) and Qwen2_5_VLDATA is not None:
         return Qwen2_5_VLDATA
-    if any("t5" in candidate for candidate in candidates):
+    if any("t5" in candidate for candidate in candidates) and T5DATA is not None:
         return T5DATA
-    if any("llama" in candidate for candidate in candidates):
+    if any("llama" in candidate for candidate in candidates) and LlamaDATA is not None:
         return LlamaDATA
-    if any("qwen2" in candidate for candidate in candidates):
+    if any("qwen2" in candidate for candidate in candidates) and Qwen2DATA is not None:
         return Qwen2DATA
     return None
 

@@ -24,15 +24,15 @@ def _load_transformers_class(class_name: str, module_name: str, required: bool =
                 fromlist=[class_name],
             )
             return getattr(module, class_name)
-        except (ImportError, AttributeError):
+        except Exception:
             if required:
                 raise
             return None
 
 
-T5ForConditionalGeneration = _load_transformers_class("T5ForConditionalGeneration", "t5")
-LlamaForCausalLM = _load_transformers_class("LlamaForCausalLM", "llama")
-Qwen2ForCausalLM = _load_transformers_class("Qwen2ForCausalLM", "qwen2")
+T5ForConditionalGeneration = _load_transformers_class("T5ForConditionalGeneration", "t5", required=False)
+LlamaForCausalLM = _load_transformers_class("LlamaForCausalLM", "llama", required=False)
+Qwen2ForCausalLM = _load_transformers_class("Qwen2ForCausalLM", "qwen2", required=False)
 
 Qwen2_5_VLDATA = None
 Qwen3VLDATA = None
@@ -88,74 +88,76 @@ QWEN3_VL_MOE_TARGET_MODULES = [
     "Qwen3VLMoeTextSparseMoeBlock",
 ]
 
-class Qwen2DATA(Qwen2ForCausalLM):
-    def __init__(self, config):
-        super().__init__(config)
-        self.wrap_model()
+Qwen2DATA = None
+if Qwen2ForCausalLM is not None:
+    class Qwen2DATA(Qwen2ForCausalLM):
+        def __init__(self, config):
+            super().__init__(config)
+            self.wrap_model()
 
-    def wrap_model(self):
-        if self.config.nomlp:
-            logging.info('nomlp')
-            inject_trainable_data(self, target_replace_module=[
-                              "Qwen2SdpaAttention", "Qwen2Attention", "Qwen2FlashAttention2"], r=self.config.data_rank1, r2=self.config.data_rank2)
-        else:
-            inject_trainable_data(self, target_replace_module=[
-                              "Qwen2MLP", "Qwen2SdpaAttention", "Qwen2Attention", "Qwen2FlashAttention2"], r=self.config.data_rank1, r2=self.config.data_rank2)
-        if self.config.adaprompt:
-            self.model.prompt_init()
+        def wrap_model(self):
+            if self.config.nomlp:
+                logging.info('nomlp')
+                inject_trainable_data(self, target_replace_module=[
+                                  "Qwen2SdpaAttention", "Qwen2Attention", "Qwen2FlashAttention2"], r=self.config.data_rank1, r2=self.config.data_rank2)
+            else:
+                inject_trainable_data(self, target_replace_module=[
+                                  "Qwen2MLP", "Qwen2SdpaAttention", "Qwen2Attention", "Qwen2FlashAttention2"], r=self.config.data_rank1, r2=self.config.data_rank2)
+            if self.config.adaprompt:
+                self.model.prompt_init()
 
-    def unwrap_model(self):
-        uninject_trainable_data(self, target_replace_module=[
-                                "Qwen2MLP", "Qwen2SdpaAttention", "Qwen2Attention", "Qwen2FlashAttention2"])
-        if self.config.adaprompt:
-            for e in range(self.config.num_hidden_layers // self.config.gap_layers):
-                delattr(self.model, f"data_a_{e}")
-                delattr(self.model, f"data_k_{e}")
-                delattr(self.model, f"data_w_{e}")
-                delattr(self.model, f"data_w2_{e}")
-                delattr(self.model, f"data_a2_{e}")
-                delattr(self.model, f"data_k2_{e}")
-                if self.config.scale_bakebone:
-                    delattr(self.model, f"data_w3_{e}")
-                    delattr(self.model, f"data_a3_{e}")
-                    delattr(self.model, f"data_k3_{e}")
+        def unwrap_model(self):
+            uninject_trainable_data(self, target_replace_module=[
+                                    "Qwen2MLP", "Qwen2SdpaAttention", "Qwen2Attention", "Qwen2FlashAttention2"])
+            if self.config.adaprompt:
+                for e in range(self.config.num_hidden_layers // self.config.gap_layers):
+                    delattr(self.model, f"data_a_{e}")
+                    delattr(self.model, f"data_k_{e}")
+                    delattr(self.model, f"data_w_{e}")
+                    delattr(self.model, f"data_w2_{e}")
+                    delattr(self.model, f"data_a2_{e}")
+                    delattr(self.model, f"data_k2_{e}")
+                    if self.config.scale_bakebone:
+                        delattr(self.model, f"data_w3_{e}")
+                        delattr(self.model, f"data_a3_{e}")
+                        delattr(self.model, f"data_k3_{e}")
 
-    def load_model(self, state_dict):
-        self.unwrap_model()
-        self.load_state_dict(state_dict)
-        self.wrap_model()
+        def load_model(self, state_dict):
+            self.unwrap_model()
+            self.load_state_dict(state_dict)
+            self.wrap_model()
 
-    def forward(
-        self,
-        input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-    ):
-        return super().forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            labels=labels,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-            cache_position=cache_position,
-        )
+        def forward(
+            self,
+            input_ids: torch.LongTensor = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_values = None,
+            inputs_embeds: Optional[torch.FloatTensor] = None,
+            labels: Optional[torch.LongTensor] = None,
+            use_cache: Optional[bool] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            return_dict: Optional[bool] = None,
+            cache_position: Optional[torch.LongTensor] = None,
+        ):
+            return super().forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                labels=labels,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+                cache_position=cache_position,
+            )
 
-    def generate(self, **kwargs):
-        # kwargs.pop('labels', None)
-        return super().generate(**kwargs)
+        def generate(self, **kwargs):
+            # kwargs.pop('labels', None)
+            return super().generate(**kwargs)
 
 
 if Qwen2_5_VLForConditionalGeneration is not None:
@@ -263,166 +265,170 @@ if Qwen3VLMoeForConditionalGeneration is not None:
             return super().generate(**kwargs)
 
 
-class LlamaDATA(LlamaForCausalLM):
-    def __init__(self, config):
-        super().__init__(config)
-        self.wrap_model()
+LlamaDATA = None
+if LlamaForCausalLM is not None:
+    class LlamaDATA(LlamaForCausalLM):
+        def __init__(self, config):
+            super().__init__(config)
+            self.wrap_model()
 
-    def wrap_model(self):
-        if self.config.nomlp:
-            logging.info('nomlp')
-            inject_trainable_data(self, target_replace_module=[
-                              "LlamaSdpaAttention", "LlamaAttention", "LlamaFlashAttention2"], r=self.config.data_rank1, r2=self.config.data_rank2)
-        else:
-            inject_trainable_data(self, target_replace_module=[
-                              "LlamaMLP", "LlamaSdpaAttention", "LlamaAttention", "LlamaFlashAttention2"], r=self.config.data_rank1, r2=self.config.data_rank2)
-        if self.config.adaprompt:
-            self.model.prompt_init()
+        def wrap_model(self):
+            if self.config.nomlp:
+                logging.info('nomlp')
+                inject_trainable_data(self, target_replace_module=[
+                                  "LlamaSdpaAttention", "LlamaAttention", "LlamaFlashAttention2"], r=self.config.data_rank1, r2=self.config.data_rank2)
+            else:
+                inject_trainable_data(self, target_replace_module=[
+                                  "LlamaMLP", "LlamaSdpaAttention", "LlamaAttention", "LlamaFlashAttention2"], r=self.config.data_rank1, r2=self.config.data_rank2)
+            if self.config.adaprompt:
+                self.model.prompt_init()
 
-    def unwrap_model(self):
-        uninject_trainable_data(self, target_replace_module=[
-                                "LlamaMLP", "LlamaSdpaAttention", "LlamaAttention", "LlamaFlashAttention2"])
-        if self.config.adaprompt:
-            for e in range(self.config.num_hidden_layers // self.config.gap_layers):
-                delattr(self.model, f"data_a_{e}")
-                delattr(self.model, f"data_k_{e}")
-                delattr(self.model, f"data_w_{e}")
-                delattr(self.model, f"data_w2_{e}")
-                delattr(self.model, f"data_a2_{e}")
-                delattr(self.model, f"data_k2_{e}")
-                if self.config.scale_bakebone:
-                    delattr(self.model, f"data_w3_{e}")
-                    delattr(self.model, f"data_a3_{e}")
-                    delattr(self.model, f"data_k3_{e}")
+        def unwrap_model(self):
+            uninject_trainable_data(self, target_replace_module=[
+                                    "LlamaMLP", "LlamaSdpaAttention", "LlamaAttention", "LlamaFlashAttention2"])
+            if self.config.adaprompt:
+                for e in range(self.config.num_hidden_layers // self.config.gap_layers):
+                    delattr(self.model, f"data_a_{e}")
+                    delattr(self.model, f"data_k_{e}")
+                    delattr(self.model, f"data_w_{e}")
+                    delattr(self.model, f"data_w2_{e}")
+                    delattr(self.model, f"data_a2_{e}")
+                    delattr(self.model, f"data_k2_{e}")
+                    if self.config.scale_bakebone:
+                        delattr(self.model, f"data_w3_{e}")
+                        delattr(self.model, f"data_a3_{e}")
+                        delattr(self.model, f"data_k3_{e}")
 
-    def load_model(self, state_dict):
-        self.unwrap_model()
-        self.load_state_dict(state_dict)
-        self.wrap_model()
+        def load_model(self, state_dict):
+            self.unwrap_model()
+            self.load_state_dict(state_dict)
+            self.wrap_model()
 
-    def forward(
-        self,
-        input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-    ):
-        return super().forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            labels=labels,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-            cache_position=cache_position,
-        )
+        def forward(
+            self,
+            input_ids: torch.LongTensor = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_values = None,
+            inputs_embeds: Optional[torch.FloatTensor] = None,
+            labels: Optional[torch.LongTensor] = None,
+            use_cache: Optional[bool] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            return_dict: Optional[bool] = None,
+            cache_position: Optional[torch.LongTensor] = None,
+        ):
+            return super().forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                labels=labels,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+                cache_position=cache_position,
+            )
 
-    def generate(self, **kwargs):
-        # kwargs.pop('labels', None)
-        return super().generate(**kwargs)
+        def generate(self, **kwargs):
+            # kwargs.pop('labels', None)
+            return super().generate(**kwargs)
 
 
-class T5DATA(T5ForConditionalGeneration):
-    def __init__(self, config):
-        super().__init__(config)
-        self.wrap_model()
+T5DATA = None
+if T5ForConditionalGeneration is not None:
+    class T5DATA(T5ForConditionalGeneration):
+        def __init__(self, config):
+            super().__init__(config)
+            self.wrap_model()
 
-    def wrap_model(self):
-        if self.config.nomlp:
-            inject_trainable_data(self, target_replace_module=["T5Attention"], r=self.config.data_rank1, r2=self.config.data_rank2)
-        else:
-            inject_trainable_data(self, target_replace_module=[
-                            "T5Attention", "T5DenseActDense"], r=self.config.data_rank1, r2=self.config.data_rank2)
-        
-        if self.config.adaprompt:
-            self.decoder.prompt_init()
-            self.encoder.prompt_init()
+        def wrap_model(self):
+            if self.config.nomlp:
+                inject_trainable_data(self, target_replace_module=["T5Attention"], r=self.config.data_rank1, r2=self.config.data_rank2)
+            else:
+                inject_trainable_data(self, target_replace_module=[
+                                "T5Attention", "T5DenseActDense"], r=self.config.data_rank1, r2=self.config.data_rank2)
+            
+            if self.config.adaprompt:
+                self.decoder.prompt_init()
+                self.encoder.prompt_init()
 
-    def unwrap_model(self):
-        # if self.config.adaprompt:
-        #     uninject_trainable_data(self, target_replace_module=["T5Attention"])
-        # else:
-        uninject_trainable_data(self, target_replace_module=["T5Attention", "T5DenseActDense"])
-        if self.config.adaprompt:
-            for e in range(self.config.num_layers // self.config.gap_layers):
-                delattr(self.decoder, f"data_a_{e}")
-                delattr(self.decoder, f"data_k_{e}")
-                delattr(self.decoder, f"data_w_{e}")
-                delattr(self.decoder, f"data_w2_{e}")
-                delattr(self.decoder, f"data_a2_{e}")
-                delattr(self.decoder, f"data_k2_{e}")
-                # if self.config.is_encoder_decoder:
-                delattr(self.encoder, f"data_a_{e}")
-                delattr(self.encoder, f"data_k_{e}")
-                delattr(self.encoder, f"data_w_{e}")
-                delattr(self.encoder, f"data_w2_{e}")
-                delattr(self.encoder, f"data_a2_{e}")
-                delattr(self.encoder, f"data_k2_{e}")
-                
-                if self.config.scale_bakebone:
-                    delattr(self.encoder, f"data_w3_{e}")
-                    delattr(self.encoder, f"data_a3_{e}")
-                    delattr(self.encoder, f"data_k3_{e}")
-                    delattr(self.decoder, f"data_w3_{e}")
-                    delattr(self.decoder, f"data_a3_{e}")
-                    delattr(self.decoder, f"data_k3_{e}")
+        def unwrap_model(self):
+            # if self.config.adaprompt:
+            #     uninject_trainable_data(self, target_replace_module=["T5Attention"])
+            # else:
+            uninject_trainable_data(self, target_replace_module=["T5Attention", "T5DenseActDense"])
+            if self.config.adaprompt:
+                for e in range(self.config.num_layers // self.config.gap_layers):
+                    delattr(self.decoder, f"data_a_{e}")
+                    delattr(self.decoder, f"data_k_{e}")
+                    delattr(self.decoder, f"data_w_{e}")
+                    delattr(self.decoder, f"data_w2_{e}")
+                    delattr(self.decoder, f"data_a2_{e}")
+                    delattr(self.decoder, f"data_k2_{e}")
+                    # if self.config.is_encoder_decoder:
+                    delattr(self.encoder, f"data_a_{e}")
+                    delattr(self.encoder, f"data_k_{e}")
+                    delattr(self.encoder, f"data_w_{e}")
+                    delattr(self.encoder, f"data_w2_{e}")
+                    delattr(self.encoder, f"data_a2_{e}")
+                    delattr(self.encoder, f"data_k2_{e}")
+                    
+                    if self.config.scale_bakebone:
+                        delattr(self.encoder, f"data_w3_{e}")
+                        delattr(self.encoder, f"data_a3_{e}")
+                        delattr(self.encoder, f"data_k3_{e}")
+                        delattr(self.decoder, f"data_w3_{e}")
+                        delattr(self.decoder, f"data_a3_{e}")
+                        delattr(self.decoder, f"data_k3_{e}")
 
-    def load_model(self, state_dict):
-        self.unwrap_model()
-        self.load_state_dict(state_dict)
-        self.wrap_model()
+        def load_model(self, state_dict):
+            self.unwrap_model()
+            self.load_state_dict(state_dict)
+            self.wrap_model()
 
-    def forward(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.FloatTensor] = None,
-        decoder_input_ids: Optional[torch.LongTensor] = None,
-        decoder_attention_mask: Optional[torch.BoolTensor] = None,
-        head_mask: Optional[torch.FloatTensor] = None,
-        decoder_head_mask: Optional[torch.FloatTensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
-        encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ):
-        return super().forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            decoder_input_ids=decoder_input_ids,
-            decoder_attention_mask=decoder_attention_mask,
-            head_mask=head_mask,
-            decoder_head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
-            encoder_outputs=encoder_outputs,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            decoder_inputs_embeds=decoder_inputs_embeds,
-            labels=labels,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
+        def forward(
+            self,
+            input_ids: Optional[torch.LongTensor] = None,
+            attention_mask: Optional[torch.FloatTensor] = None,
+            decoder_input_ids: Optional[torch.LongTensor] = None,
+            decoder_attention_mask: Optional[torch.BoolTensor] = None,
+            head_mask: Optional[torch.FloatTensor] = None,
+            decoder_head_mask: Optional[torch.FloatTensor] = None,
+            cross_attn_head_mask: Optional[torch.Tensor] = None,
+            encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+            past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+            inputs_embeds: Optional[torch.FloatTensor] = None,
+            decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+            labels: Optional[torch.LongTensor] = None,
+            use_cache: Optional[bool] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            return_dict: Optional[bool] = None,
+        ):
+            return super().forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                decoder_input_ids=decoder_input_ids,
+                decoder_attention_mask=decoder_attention_mask,
+                head_mask=head_mask,
+                decoder_head_mask=decoder_head_mask,
+                cross_attn_head_mask=cross_attn_head_mask,
+                encoder_outputs=encoder_outputs,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                decoder_inputs_embeds=decoder_inputs_embeds,
+                labels=labels,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
 
-    def generate(self, **kwargs):
-        return super().generate(**kwargs)
+        def generate(self, **kwargs):
+            return super().generate(**kwargs)
 
 def tensor_prompt(a, b, c=None, ortho=False):
     if c is None:
