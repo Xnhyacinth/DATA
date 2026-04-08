@@ -17,7 +17,7 @@ import math
 import os
 from typing import Any
 
-from transformers.trainer import TRAINER_STATE_NAME
+TRAINER_STATE_NAME = "trainer_state.json"
 
 from . import logging
 from .packages import is_matplotlib_available
