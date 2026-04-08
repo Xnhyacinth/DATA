@@ -436,6 +436,44 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         if not self.is_world_process_zero():
             return
 
+        def _normalize_token_ids(token_ids: Any) -> List[int]:
+            """Normalize potentially-nested token id structures into a flat List[int] for tokenizer decoding."""
+            if token_ids is None:
+                return []
+
+            if isinstance(token_ids, torch.Tensor):
+                token_ids = token_ids.detach().cpu().tolist()
+            elif isinstance(token_ids, np.ndarray):
+                token_ids = token_ids.tolist()
+            elif isinstance(token_ids, dict) and "input_ids" in token_ids:
+                token_ids = token_ids["input_ids"]
+
+            out: List[int] = []
+
+            def _flatten(obj: Any) -> None:
+                if obj is None:
+                    return
+                if isinstance(obj, (int, np.integer)):
+                    out.append(int(obj))
+                    return
+                if isinstance(obj, torch.Tensor):
+                    _flatten(obj.detach().cpu().tolist())
+                    return
+                if isinstance(obj, np.ndarray):
+                    _flatten(obj.tolist())
+                    return
+                if isinstance(obj, (list, tuple)):
+                    for item in obj:
+                        _flatten(item)
+                    return
+                try:
+                    out.append(int(obj))
+                except Exception:
+                    return
+
+            _flatten(token_ids)
+            return out
+
         output_prediction_file = os.path.join(self.args.output_dir, "generated_predictions.jsonl")
         logger.info(f"Saving prediction results to {output_prediction_file}")
 
@@ -451,7 +489,9 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             if len(pad_len):  # move pad token to last
                 preds[i] = np.concatenate((preds[i][pad_len[0] :], preds[i][: pad_len[0]]), axis=-1)
 
-        decoded_inputs = self.tokenizer.batch_decode(dataset["input_ids"], skip_special_tokens=True)
+        decoded_inputs = self.tokenizer.batch_decode(
+            [_normalize_token_ids(x) for x in dataset["input_ids"]], skip_special_tokens=True
+        )
         decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
         decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
 
