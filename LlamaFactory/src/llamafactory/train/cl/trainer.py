@@ -523,7 +523,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         self.callback_handler.eval_dataloader = dataloader
         # Do this before wrapping.
         eval_dataset = getattr(dataloader, "dataset", None)
-        if args.past_index >= 0:
+        past_index = getattr(args, "past_index", -1)
+        if past_index >= 0:
             self._past = None
 
         # Initialize containers
@@ -553,7 +554,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             # print("woshilogit", model, inputs, prediction_loss_only, ignore_keys)
             # exit()
             main_input_name = getattr(self.model, "main_input_name", "input_ids")
-            inputs_decode = self._prepare_input(inputs[main_input_name]) if args.include_inputs_for_metrics else None
+            include_inputs_for_metrics = getattr(args, "include_inputs_for_metrics", False)
+            inputs_decode = self._prepare_input(inputs[main_input_name]) if include_inputs_for_metrics else None
 
             if is_torch_xla_available():
                 xm.mark_step()
@@ -588,7 +590,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
         # After all calls to `.gather_function`, reset to `gather_for_metrics`:
         self.gather_function = self.accelerator.gather_for_metrics
-        if args.past_index and hasattr(self, "_past"):
+        if past_index >= 0 and hasattr(self, "_past"):
             # Clean the state at the end of the evaluation loop
             delattr(self, "_past")
 
