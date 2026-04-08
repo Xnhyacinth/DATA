@@ -39,7 +39,19 @@ from ...modeling_rope_utils import ROPE_INIT_FUNCTIONS, dynamic_rope_update
 from ...modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from ...processing_utils import Unpack
 from ...utils import TransformersKwargs, auto_docstring, can_return_tuple, torch_compilable_check
-from ...utils.generic import check_model_inputs, is_flash_attention_requested, maybe_autocast
+try:
+    from ...utils.generic import check_model_inputs, is_flash_attention_requested, maybe_autocast
+except Exception:
+    from contextlib import nullcontext
+
+    def check_model_inputs(func):
+        return func
+
+    def is_flash_attention_requested(config) -> bool:
+        return getattr(config, "_attn_implementation", None) in {"flash_attention_2", "flash_attention_3"}
+
+    def maybe_autocast(*args, **kwargs):
+        return nullcontext()
 from .configuration_qwen3_vl import Qwen3VLConfig, Qwen3VLTextConfig, Qwen3VLVisionConfig
 
 
