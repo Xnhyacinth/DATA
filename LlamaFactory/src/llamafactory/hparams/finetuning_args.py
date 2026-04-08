@@ -560,6 +560,10 @@ class FinetuningArguments(
         default=False,
         metadata={"help": "Whether or not to enable DATA module injection."},
     )
+    runtime_local_patch: bool = field(
+        default=True,
+        metadata={"help": "Whether or not to apply local in-memory transformers modeling patches during DATA runs."},
+    )
     restore: float | None = field(
         default=None,
         metadata={"help": "Stochastic restore interval used by continual learning."},

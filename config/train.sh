@@ -227,7 +227,7 @@ if [ "$finetuning_type" = "lora" ];then
 fi
 
 if [ "$finetuning_type" == "data" ];then
-    extra_args="$extra_args --data_rank1 ${data_rank1} --data_rank2 ${data_rank2} --is_data True"
+    extra_args="$extra_args --data_rank1 ${data_rank1} --data_rank2 ${data_rank2} --is_data True --runtime_local_patch True"
     # if [ "$data_rank1" != "4" ];then
     save_path="${save_path}_data${data_rank1}_data${data_rank2}"
     run_name="${run_name}_data${data_rank1}_data${data_rank2}"

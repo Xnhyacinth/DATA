@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from importlib import import_module
 from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 import torch
@@ -31,8 +32,6 @@ from ..extras import logging
 from ..extras.misc import count_parameters, skip_check_imports, try_download_model_from_other_hub
 from ..extras.packages import is_torch_version_greater_than
 from .adapter import init_adapter
-from .data import LlamaDATA, Qwen2DATA, T5DATA
-from .data import Qwen2_5_VLDATA, Qwen3VLDATA, Qwen3VLMoeDATA
 from .model_utils.ktransformers import load_kt_pretrained_model
 from .model_utils.liger_kernel import apply_liger_kernel
 from .model_utils.checkpointing import prepare_model_for_training
@@ -41,6 +40,7 @@ from .model_utils.mod import convert_pretrained_model_to_mod, load_mod_pretraine
 from .model_utils.unsloth import load_unsloth_pretrained_model
 from .model_utils.valuehead import load_valuehead_params
 from .patcher import patch_config, patch_model, patch_processor, patch_tokenizer, patch_valuehead_model
+from .runtime_patch import apply_data_runtime_patches
 
 
 if TYPE_CHECKING:
@@ -62,21 +62,22 @@ def _normalize_model_name(model_name: str) -> str:
 
 
 def _get_data_model_class(model_type: str, model_name: str):
+    data_module = import_module(".data", package=__package__)
     normalized_model_type = _normalize_model_name(model_type)
     normalized_model_name = _normalize_model_name(model_name)
     candidates = [normalized_model_type, normalized_model_name]
-    if any("qwen3_vl_moe" in candidate for candidate in candidates) and Qwen3VLMoeDATA is not None:
-        return Qwen3VLMoeDATA
-    if any("qwen3_vl" in candidate for candidate in candidates) and Qwen3VLDATA is not None:
-        return Qwen3VLDATA
-    if any("qwen2_5_vl" in candidate for candidate in candidates) and Qwen2_5_VLDATA is not None:
-        return Qwen2_5_VLDATA
-    if any("t5" in candidate for candidate in candidates) and T5DATA is not None:
-        return T5DATA
-    if any("llama" in candidate for candidate in candidates) and LlamaDATA is not None:
-        return LlamaDATA
-    if any("qwen2" in candidate for candidate in candidates) and Qwen2DATA is not None:
-        return Qwen2DATA
+    if any("qwen3_vl_moe" in candidate for candidate in candidates) and getattr(data_module, "Qwen3VLMoeDATA", None) is not None:
+        return data_module.Qwen3VLMoeDATA
+    if any("qwen3_vl" in candidate for candidate in candidates) and getattr(data_module, "Qwen3VLDATA", None) is not None:
+        return data_module.Qwen3VLDATA
+    if any("qwen2_5_vl" in candidate for candidate in candidates) and getattr(data_module, "Qwen2_5_VLDATA", None) is not None:
+        return data_module.Qwen2_5_VLDATA
+    if any("t5" in candidate for candidate in candidates) and getattr(data_module, "T5DATA", None) is not None:
+        return data_module.T5DATA
+    if any("llama" in candidate for candidate in candidates) and getattr(data_module, "LlamaDATA", None) is not None:
+        return data_module.LlamaDATA
+    if any("qwen2" in candidate for candidate in candidates) and getattr(data_module, "Qwen2DATA", None) is not None:
+        return data_module.Qwen2DATA
     return None
 
 
@@ -167,6 +168,9 @@ def load_model(
     config = load_config(model_args)
     patch_config(config, tokenizer, model_args, init_kwargs, is_trainable)
     apply_liger_kernel(config, model_args, is_trainable, require_logits=(finetuning_args.stage not in ["pt", "sft"]))
+
+    if (finetuning_args.finetuning_type == "data" or finetuning_args.is_data) and finetuning_args.runtime_local_patch:
+        apply_data_runtime_patches(getattr(config, "model_type", ""), model_args.model_name_or_path)
 
     model = None
     lazy_load = False
