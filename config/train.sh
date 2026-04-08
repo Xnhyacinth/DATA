@@ -11,6 +11,7 @@ echo "GPU: ${gpus}"
 model=${3:-"llama3-8b"}
 order=${4:-"order_1"}
 finetuning_type=${5:-"lora"}
+requested_finetuning_type=${finetuning_type}
 epoch=${6:-"1"}
 lr=${7:-"1e-4"}
 bs=${8:-"8"}
@@ -36,6 +37,8 @@ nomlp=${27:-"0"}
 project=${28:-"0"}
 replay=${29:-"0"}
 max_samples=${30:-"1000000"}
+test_after_each=${TEST_AFTER_EACH:-0}
+test_after_each_scope=${TEST_AFTER_EACH_SCOPE:-seen}
 extra_args=""
 save_steps=10000
 cutoff_len=2048
@@ -572,6 +575,62 @@ for part in "${parts[@]}"; do
     if [ "${train_status}" -ne 0 ]; then
         echo "${part} error!"
         exit 1
+    fi
+    if [ "${test_after_each}" != "0" ]; then
+        eval_output_dir="${save_path}/test_after_train"
+        eval_logfile="${eval_output_dir}/predict.log"
+        mkdir -p "${eval_output_dir}"
+
+        eval_hook_extra_args="${extra_args0// --do_train/}"
+        if [ "${test_after_each_scope}" = "current" ]; then
+            eval_dataset_after_train="cl_${part}_eval"
+        else
+            eval_dataset_after_train="${eval_dataset}"
+        fi
+
+        eval_model_name_or_path="${model_name_or_path}"
+        if [ "${requested_finetuning_type}" = "lora" ]; then
+            eval_hook_extra_args="${eval_hook_extra_args} --adapter_name_or_path ${save_path}"
+        elif [ "${is_data:-False}" = "True" ] || [ "${requested_finetuning_type}" = "full" ]; then
+            eval_model_name_or_path="${save_path}"
+        fi
+        if [ "$adaprompt" != "0" ]; then
+            task_id=$((idx-1))
+            eval_hook_extra_args="${eval_hook_extra_args} --task_id ${task_id}"
+        fi
+
+        echo "test_after_each: ${test_after_each}"
+        echo "test_after_each_scope: ${test_after_each_scope}"
+        echo "eval_dataset_after_train: ${eval_dataset_after_train}"
+        echo "eval_output_dir: ${eval_output_dir}"
+
+        PYTHONPATH="${llamafactory_src}:${PYTHONPATH}" CUDA_VISIBLE_DEVICES=${gpus} ${python_bin} -m llamafactory.cli train \
+            --stage cl \
+            --model_name_or_path ${eval_model_name_or_path} \
+            --dataset_dir ./data \
+            --template ${template} \
+            --finetuning_type ${finetuning_type} \
+            --output_dir ${eval_output_dir} \
+            --overwrite_cache \
+            --overwrite_output_dir \
+            --cutoff_len ${cutoff_len} \
+            --preprocessing_num_workers 16 \
+            --per_device_eval_batch_size ${eval_bs} \
+            --ddp_timeout 180000000 \
+            --max_new_tokens ${max_new_tokens} \
+            --report_to ${report_to} \
+            --remove_unused_columns False \
+            --run_name ${run_name}/test_after_train/${idx}-${part} \
+            --seed ${seed} \
+            --bf16 \
+            --eval_dataset ${eval_dataset_after_train} \
+            --do_predict --predict_with_generate \
+            ${eval_hook_extra_args} 2>&1 | tee "${eval_logfile}"
+        eval_status=${PIPESTATUS[0]}
+        if [ "${eval_status}" -ne 0 ]; then
+            echo "${part} test_after_train error!"
+            exit 1
+        fi
     fi
     if [ "$idx" -gt 1 ]; then
         echo "mv  ${mvpath}"
