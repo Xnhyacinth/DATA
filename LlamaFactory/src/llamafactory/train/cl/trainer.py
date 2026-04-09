@@ -446,7 +446,19 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         if "max_length" in gen_kwargs and gen_kwargs["max_length"] is None:
             gen_kwargs.pop("max_length")
 
-        default_synced_gpus = is_deepspeed_zero3_enabled() or is_fsdp_managed_module(self.model)
+        try:
+            from transformers.integrations import is_deepspeed_zero3_enabled as _is_deepspeed_zero3_enabled
+        except Exception:
+            def _is_deepspeed_zero3_enabled() -> bool:
+                return False
+
+        try:
+            from transformers.trainer import is_fsdp_managed_module as _is_fsdp_managed_module
+        except Exception:
+            def _is_fsdp_managed_module(_: object) -> bool:
+                return False
+
+        default_synced_gpus = _is_deepspeed_zero3_enabled() or _is_fsdp_managed_module(self.model)
         gen_kwargs["synced_gpus"] = gen_kwargs.get("synced_gpus", default_synced_gpus)
 
         generation_inputs = inputs.copy()
@@ -459,11 +471,15 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             generation_inputs.pop("decoder_input_ids", None)
             generation_inputs.pop("decoder_attention_mask", None)
 
-        summon_full_params_context = (
-            FullyShardedDataParallel.summon_full_params(self.model)
-            if isinstance(self.model, FullyShardedDataParallel)
-            else contextlib.nullcontext()
-        )
+        try:
+            from torch.distributed.fsdp import FullyShardedDataParallel as _FSDP  # type: ignore
+        except Exception:
+            _FSDP = None
+
+        if _FSDP is not None and isinstance(self.model, _FSDP):
+            summon_full_params_context = _FSDP.summon_full_params(self.model)
+        else:
+            summon_full_params_context = contextlib.nullcontext()
 
         with summon_full_params_context:
             generated_tokens = self.model.generate(**generation_inputs, **gen_kwargs)
