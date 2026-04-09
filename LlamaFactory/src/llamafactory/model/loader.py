@@ -166,10 +166,11 @@ def load_model(
     r"""Load pretrained model."""
     init_kwargs = _get_init_kwargs(model_args)
     config = load_config(model_args)
+    is_data_mode = finetuning_args.finetuning_type == "data" or finetuning_args.is_data
     patch_config(config, tokenizer, model_args, init_kwargs, is_trainable)
     apply_liger_kernel(config, model_args, is_trainable, require_logits=(finetuning_args.stage not in ["pt", "sft"]))
 
-    if (finetuning_args.finetuning_type == "data" or finetuning_args.is_data) and finetuning_args.runtime_local_patch:
+    if is_data_mode and finetuning_args.runtime_local_patch:
         apply_data_runtime_patches(getattr(config, "model_type", ""), model_args.model_name_or_path)
 
     model = None
@@ -213,7 +214,21 @@ def load_model(
             model = load_mod_pretrained_model(**init_kwargs)
         else:
             auto_map = getattr(config, "auto_map", None) or {}
-            if isinstance(auto_map, dict) and "AutoModelForImageTextToText" in auto_map:
+            if is_data_mode:
+                load_class = _get_data_model_class(getattr(config, "model_type", ""), model_args.model_name_or_path)
+                if load_class is None:
+                    auto_map = getattr(config, "auto_map", None) or {}
+                    if isinstance(auto_map, dict) and "AutoModelForImageTextToText" in auto_map:
+                        load_class = AutoModelForImageTextToText
+                    elif type(config) in AutoModelForImageTextToText._model_mapping.keys():  # image-text
+                        load_class = AutoModelForImageTextToText
+                    elif type(config) in AutoModelForSeq2SeqLM._model_mapping.keys():  # audio-text
+                        load_class = AutoModelForSeq2SeqLM
+                    elif type(config) in AutoModelForTextToWaveform._model_mapping.keys():  # audio-text for qwen omni
+                        load_class = AutoModelForTextToWaveform
+                    else:
+                        load_class = AutoModelForCausalLM
+            elif isinstance(auto_map, dict) and "AutoModelForImageTextToText" in auto_map:
                 load_class = AutoModelForImageTextToText
             elif type(config) in AutoModelForImageTextToText._model_mapping.keys():  # image-text
                 load_class = AutoModelForImageTextToText
@@ -243,10 +258,10 @@ def load_model(
         register_autoclass(config, model, tokenizer)
 
     # Wrap with DATA adapters if requested via finetuning_type or explicit flag.
-    if finetuning_args.finetuning_type == "data" or finetuning_args.is_data:
+    if is_data_mode:
         base_model = model
         data_model_class = _get_data_model_class(getattr(config, "model_type", ""), model_args.model_name_or_path)
-        if data_model_class is not None:
+        if data_model_class is not None and not isinstance(base_model, data_model_class):
             model = data_model_class(base_model.config)
         else:
             # Fallback: keep base and let adapter decide
@@ -284,7 +299,7 @@ def load_model(
                 "See https://github.com/pytorch/pytorch/issues/166122"
             )
 
-    if finetuning_args.finetuning_type == "data" or finetuning_args.is_data:
+    if is_data_mode:
         logger.info_rank0("Fine-tuning method: DATA (freeze backbone, train injected data parameters only)")
         for name, param in model.named_parameters():
             param.requires_grad_("data_" in name)
