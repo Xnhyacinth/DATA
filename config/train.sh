@@ -180,7 +180,7 @@ if [ "$model" = "robobrain2.5-4b" ] || [ "$model" = "robobrain25-4b" ] || [ "$mo
     cutoff_len=4096
     extra_args="$extra_args --freeze_vision_tower True"
 fi
-if [ "$model" = "flm-audio" ] || [ "$model" = "FLM-Audio" ];then
+if [ "$model" = "flm-audio" ] || [ "$model" = "FLM-Audio" ] || [ "$model" = "CofeAI/FLM-Audio" ];then
     model_name_or_path=CofeAI/FLM-Audio
     if [ "$template" = "fewshot" ];then
         template=chatml
