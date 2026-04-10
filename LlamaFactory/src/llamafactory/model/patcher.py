@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 from peft import PeftModel
-from transformers import GenerationMixin, PreTrainedModel, PreTrainedTokenizerBase
+from transformers import GenerationConfig, GenerationMixin, PreTrainedModel, PreTrainedTokenizerBase
 from transformers.integrations import is_deepspeed_zero3_enabled
 from transformers.modeling_utils import is_fsdp_enabled
 
@@ -197,7 +197,15 @@ def patch_model(
     is_trainable: bool,
     add_valuehead: bool,
 ) -> None:
-    gen_config = model.generation_config  # check and fix generation config
+    gen_config = getattr(model, "generation_config", None)  # check and fix generation config
+    if gen_config is None:
+        try:
+            gen_config = GenerationConfig.from_model_config(model.config)
+        except Exception:
+            gen_config = GenerationConfig()
+
+        model.generation_config = gen_config
+
     if not gen_config.do_sample and (
         (gen_config.temperature is not None and gen_config.temperature != 1.0)
         or (gen_config.top_p is not None and gen_config.top_p != 1.0)
