@@ -15,6 +15,11 @@ def remove_patch(package_path, patch_filename):
 
         shutil.move(backup_path, autoregressive_path)
         print(f"Restored backup: {autoregressive_path}")
+    elif os.path.exists(autoregressive_path) and not os.path.islink(autoregressive_path):
+        print(
+            f"Warning: no backup found for {autoregressive_path}. "
+            "This usually means it was overwritten by an older install script and cannot be restored automatically."
+        )
 
     link_path = os.path.join(package_path, patch_filename)
 

@@ -182,7 +182,9 @@ if [ "$model" = "robobrain2.5-4b" ] || [ "$model" = "robobrain25-4b" ] || [ "$mo
 fi
 if [ "$model" = "flm-audio" ] || [ "$model" = "FLM-Audio" ];then
     model_name_or_path=CofeAI/FLM-Audio
-    template=flm_audio
+    if [ "$template" = "fewshot" ];then
+        template=chatml
+    fi
     cutoff_len=4096
 fi
 if [ "$model" = "qwen2.5-7b" ];then

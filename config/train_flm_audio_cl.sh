@@ -28,9 +28,11 @@ lora_r="${6:-8}"
 seed="${7:-42}"
 
 # Advanced defaults (override via env vars if needed).
+# For text-only CL tasks, default to a plain text chat template.
+# Switch to `TEMPLATE=flm_audio` only when the dataset actually contains audio inputs.
 epoch="${EPOCH:-1}"
 bs="${BS:-1}"
-template="${TEMPLATE:-flm_audio}"
+template="${TEMPLATE:-chatml}"
 lr_scheduler_type="${LR_SCHEDULER_TYPE:-constant}"
 deepspeed="${DEEPSPEED:--1}"
 val_size="${VAL_SIZE:-1e-10}"

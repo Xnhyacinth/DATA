@@ -28,9 +28,14 @@ def apply_patch(package_path, patch_filename):
         else:
             raise Exception(f"Existing path is not a file or symlink: {link_path}")
 
-    # Get the current working directory and patch file path
-    work_dir = os.path.abspath(os.getcwd())
-    patch_path = os.path.join(work_dir, patch_filename)
+    # Resolve patch file relative to this script first, then fall back to cwd.
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    patch_path = os.path.join(script_dir, patch_filename)
+    if not os.path.exists(patch_path):
+        work_dir = os.path.abspath(os.getcwd())
+        patch_path = os.path.join(work_dir, patch_filename)
+    if not os.path.exists(patch_path):
+        raise FileNotFoundError(f"Patch file not found: {patch_filename}")
 
     # Create the symlink
     try:
