@@ -61,6 +61,11 @@ def _normalize_model_name(model_name: str) -> str:
     return model_name.lower().replace("-", "_").replace(".", "_").replace("/", "_")
 
 
+def _is_flm_audio_model(model_name: str) -> bool:
+    normalized = _normalize_model_name(model_name)
+    return "cofeai_flm_audio" in normalized or normalized.endswith("flm_audio")
+
+
 def _get_data_model_class(model_type: str, model_name: str):
     data_module = import_module(".data", package=__package__)
     normalized_model_type = _normalize_model_name(model_type)
@@ -88,6 +93,9 @@ def _get_init_kwargs(model_args: "ModelArguments") -> dict[str, Any]:
     """
     skip_check_imports()
     model_args.model_name_or_path = try_download_model_from_other_hub(model_args)
+    if _is_flm_audio_model(model_args.model_name_or_path) and not model_args.trust_remote_code:
+        logger.info_rank0("Enabling trust_remote_code automatically for FLM-Audio.")
+        model_args.trust_remote_code = True
     return {
         "trust_remote_code": model_args.trust_remote_code,
         "cache_dir": model_args.cache_dir,
@@ -102,6 +110,7 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
     Note: including inplace operation of model_args.
     """
     init_kwargs = _get_init_kwargs(model_args)
+    tokenizer = None
     try:
         tokenizer = AutoTokenizer.from_pretrained(
             model_args.model_name_or_path,
@@ -118,9 +127,9 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
             **init_kwargs,
         )
     except Exception as e:
-        raise OSError("Failed to load tokenizer.") from e
-
-    patch_tokenizer(tokenizer, model_args)
+        if not _is_flm_audio_model(model_args.model_name_or_path):
+            raise OSError("Failed to load tokenizer.") from e
+        logger.info_rank0(f"Failed to load tokenizer directly for FLM-Audio: {e}. Trying processor fallback.")
 
     try:
         processor = AutoProcessor.from_pretrained(
@@ -143,6 +152,14 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
     if processor is not None and "Processor" not in processor.__class__.__name__:
         logger.debug("The loaded processor is not an instance of Processor. Dropping it.")
         processor = None
+
+    if tokenizer is None and processor is not None:
+        tokenizer = getattr(processor, "tokenizer", None)
+
+    if tokenizer is None:
+        raise OSError("Failed to load tokenizer.")
+
+    patch_tokenizer(tokenizer, model_args)
 
     if processor is not None:
         patch_processor(processor, tokenizer, model_args)
@@ -214,7 +231,9 @@ def load_model(
             model = load_mod_pretrained_model(**init_kwargs)
         else:
             auto_map = getattr(config, "auto_map", None) or {}
-            if is_data_mode:
+            if _is_flm_audio_model(model_args.model_name_or_path):
+                load_class = AutoModelForCausalLM
+            elif is_data_mode:
                 load_class = _get_data_model_class(getattr(config, "model_type", ""), model_args.model_name_or_path)
                 if load_class is None:
                     auto_map = getattr(config, "auto_map", None) or {}

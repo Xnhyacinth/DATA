@@ -180,6 +180,11 @@ if [ "$model" = "robobrain2.5-4b" ] || [ "$model" = "robobrain25-4b" ] || [ "$mo
     cutoff_len=4096
     extra_args="$extra_args --freeze_vision_tower True"
 fi
+if [ "$model" = "flm-audio" ] || [ "$model" = "FLM-Audio" ];then
+    model_name_or_path=CofeAI/FLM-Audio
+    template=flm_audio
+    cutoff_len=4096
+fi
 if [ "$model" = "qwen2.5-7b" ];then
     model_name_or_path=Qwen/Qwen2.5-7B
     cutoff_len=4096
