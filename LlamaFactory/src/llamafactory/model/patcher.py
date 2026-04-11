@@ -80,6 +80,40 @@ def patch_youtu_vl_model(model: "PreTrainedModel") -> None:
     model.forward = MethodType(forward, model)
 
 
+def patch_flm_audio_model(model: "PreTrainedModel", tokenizer: "PreTrainedTokenizer") -> None:
+    original_forward = model.forward
+
+    def forward(self, *args, **kwargs):
+        input_ids = kwargs.get("input_ids", None)
+        attention_mask = kwargs.get("attention_mask", None)
+        listen_ids = kwargs.get("listen_ids", None)
+        speak_ids = kwargs.get("speak_ids", None)
+
+        if input_ids is not None and listen_ids is None and speak_ids is None:
+            pad_token_id = getattr(tokenizer, "pad_token_id", None)
+            if attention_mask is not None:
+                valid_token_count = int(attention_mask.sum().item())
+            elif pad_token_id is not None:
+                valid_token_count = int(input_ids.ne(pad_token_id).sum().item())
+            else:
+                valid_token_count = int(input_ids.numel())
+
+            aud_channel = getattr(self.config, "aud_channel", 8)
+            aud_pad_token_id = self.config.mm_token_info.aud_pad_token_id
+            default_audio_ids = torch.full(
+                (valid_token_count, aud_channel),
+                aud_pad_token_id,
+                device=input_ids.device,
+                dtype=input_ids.dtype,
+            )
+            kwargs["listen_ids"] = default_audio_ids
+            kwargs["speak_ids"] = default_audio_ids.clone()
+
+        return original_forward(*args, **kwargs)
+
+    model.forward = MethodType(forward, model)
+
+
 def patch_tokenizer(tokenizer: "PreTrainedTokenizer", model_args: "ModelArguments") -> None:
     if "PreTrainedTokenizerBase" not in str(tokenizer._pad.__func__):
         tokenizer._pad = MethodType(PreTrainedTokenizerBase._pad, tokenizer)
@@ -223,6 +257,9 @@ def patch_model(
         prepare_inputs_impl = getattr(prepare_inputs_func, "__func__", prepare_inputs_func)
         if not callable(prepare_inputs_func) or "GenerationMixin" not in str(prepare_inputs_impl):
             model.prepare_inputs_for_generation = MethodType(GenerationMixin.prepare_inputs_for_generation, model)
+
+    if getattr(model.config, "model_type", None) == "FLMAudio":
+        patch_flm_audio_model(model, tokenizer)
 
     if add_valuehead:
         prepare_valuehead_model(model)
