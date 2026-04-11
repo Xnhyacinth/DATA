@@ -195,12 +195,29 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
                 audio_feature_lengths = torch.sum(feature_attention_mask, dim=1)
                 rope_index_kwargs["audio_seqlens"] = audio_feature_lengths  # prepare for input
 
-            features["position_ids"], rope_deltas = self.get_rope_func(**rope_index_kwargs)
+            features["position_ids"], rope_deltas = self._call_rope_func(rope_index_kwargs)
             features["rope_deltas"] = rope_deltas - (1 - rope_index_kwargs["attention_mask"]).sum(
                 dim=-1
             ).unsqueeze(-1)
         else:  # for qwen vl
-            features["position_ids"], features["rope_deltas"] = self.get_rope_func(**rope_index_kwargs)
+            features["position_ids"], features["rope_deltas"] = self._call_rope_func(rope_index_kwargs)
+
+    def _call_rope_func(self, rope_index_kwargs: dict[str, Any]) -> tuple["torch.Tensor", "torch.Tensor"]:
+        r"""Call get_rope_func with only the kwargs accepted by the target model."""
+        rope_signature = inspect.signature(self.get_rope_func)
+        rope_parameters = rope_signature.parameters
+        accepts_var_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in rope_parameters.values()
+        )
+
+        if accepts_var_kwargs:
+            filtered_kwargs = rope_index_kwargs
+        else:
+            filtered_kwargs = {
+                key: value for key, value in rope_index_kwargs.items() if key in rope_parameters and value is not None
+            }
+
+        return self.get_rope_func(**filtered_kwargs)
 
     def _compute_rope_position_ids_with_packing(
         self,
