@@ -219,6 +219,11 @@ def patch_model(
         if not callable(generate_func) or "GenerationMixin" not in str(generate_impl):
             model.generate = MethodType(GenerationMixin.generate, model)
 
+        prepare_inputs_func = getattr(model, "prepare_inputs_for_generation", None)
+        prepare_inputs_impl = getattr(prepare_inputs_func, "__func__", prepare_inputs_func)
+        if not callable(prepare_inputs_func) or "GenerationMixin" not in str(prepare_inputs_impl):
+            model.prepare_inputs_for_generation = MethodType(GenerationMixin.prepare_inputs_for_generation, model)
+
     if add_valuehead:
         prepare_valuehead_model(model)
 
