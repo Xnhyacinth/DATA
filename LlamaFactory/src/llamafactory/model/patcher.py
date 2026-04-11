@@ -82,6 +82,7 @@ def patch_youtu_vl_model(model: "PreTrainedModel") -> None:
 
 def patch_flm_audio_model(model: "PreTrainedModel", tokenizer: "PreTrainedTokenizer") -> None:
     original_forward = model.forward
+    original_forward_text = model._forward_text
 
     def forward(self, *args, **kwargs):
         input_ids = kwargs.get("input_ids", None)
@@ -111,7 +112,29 @@ def patch_flm_audio_model(model: "PreTrainedModel", tokenizer: "PreTrainedTokeni
 
         return original_forward(*args, **kwargs)
 
+    def forward_text(self, outputs, labels, return_dict):
+        result = original_forward_text(outputs, None, return_dict)
+        if labels is None:
+            return result
+
+        if return_dict:
+            logits = result.logits
+        else:
+            logits = result[0]
+
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100)
+        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+        if return_dict:
+            result.loss = loss
+            return result
+
+        return (loss,) + result
+
     model.forward = MethodType(forward, model)
+    model._forward_text = MethodType(forward_text, model)
 
 
 def patch_tokenizer(tokenizer: "PreTrainedTokenizer", model_args: "ModelArguments") -> None:
