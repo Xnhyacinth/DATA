@@ -447,8 +447,9 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
                     has_dummy_image,
                 )
 
-            # For transformers compatibility, after https://github.com/huggingface/transformers/issues/39400
-            if features["position_ids"].dim() == 3:
+            # Some VLMs expect an extra leading position row for transformers compatibility,
+            # but FLM-Audio's rotary embedding strictly requires exactly 3 x B x T mRoPE ids.
+            if features["position_ids"].dim() == 3 and getattr(self.model.config, "model_type", None) != "FLMAudio":
                 features["position_ids"] = torch.cat(
                     [features["position_ids"][0].unsqueeze(0), features["position_ids"]], dim=0
                 )
