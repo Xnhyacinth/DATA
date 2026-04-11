@@ -217,7 +217,13 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
                 key: value for key, value in rope_index_kwargs.items() if key in rope_parameters and value is not None
             }
 
-        return self.get_rope_func(**filtered_kwargs)
+        position_ids, rope_deltas = self.get_rope_func(**filtered_kwargs)
+        if torch.is_tensor(position_ids):
+            position_ids = position_ids.clone().contiguous()
+        if torch.is_tensor(rope_deltas):
+            rope_deltas = rope_deltas.clone().contiguous()
+
+        return position_ids, rope_deltas
 
     def _compute_rope_position_ids_with_packing(
         self,
