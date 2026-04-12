@@ -452,8 +452,16 @@ def get_train_args(args: dict[str, Any] | list[str] | None = None) -> _TRAIN_CLS
         and training_args.ddp_find_unused_parameters is None
         and finetuning_args.finetuning_type == "lora"
     ):
-        logger.info_rank0("Set `ddp_find_unused_parameters` to False in DDP training since LoRA is enabled.")
-        training_args.ddp_find_unused_parameters = False
+        normalized_model_name = model_args.model_name_or_path.lower().replace("-", "_")
+        if "cofeai/flm_audio" in normalized_model_name or normalized_model_name.endswith("flm_audio"):
+            logger.info_rank0(
+                "Set `ddp_find_unused_parameters` to True in DDP training for FLM-Audio "
+                "since text-only LoRA leaves part of the multimodal parameters unused."
+            )
+            training_args.ddp_find_unused_parameters = True
+        else:
+            logger.info_rank0("Set `ddp_find_unused_parameters` to False in DDP training since LoRA is enabled.")
+            training_args.ddp_find_unused_parameters = False
 
     if finetuning_args.stage in ["rm", "ppo"] and finetuning_args.finetuning_type in ["full", "freeze"]:
         can_resume_from_checkpoint = False
