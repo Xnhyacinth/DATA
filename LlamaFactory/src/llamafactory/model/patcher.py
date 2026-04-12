@@ -129,6 +129,7 @@ def patch_flm_audio_model(model: "PreTrainedModel", tokenizer: "PreTrainedTokeni
 
         if return_dict:
             result.loss = loss
+            result["loss"] = loss
             return result
 
         return (loss,) + result
