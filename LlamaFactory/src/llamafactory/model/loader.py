@@ -29,6 +29,7 @@ from transformers import (
 from trl import AutoModelForCausalLMWithValueHead
 
 from ..extras import logging
+from ..extras.flm_audio import is_flm_audio_model, normalize_model_name
 from ..extras.misc import count_parameters, skip_check_imports, try_download_model_from_other_hub
 from ..extras.packages import is_torch_version_greater_than
 from .adapter import init_adapter
@@ -57,19 +58,10 @@ class TokenizerModule(TypedDict):
     processor: Optional["ProcessorMixin"]
 
 
-def _normalize_model_name(model_name: str) -> str:
-    return model_name.lower().replace("-", "_").replace(".", "_").replace("/", "_")
-
-
-def _is_flm_audio_model(model_name: str) -> bool:
-    normalized = _normalize_model_name(model_name)
-    return "cofeai_flm_audio" in normalized or normalized.endswith("flm_audio")
-
-
 def _get_data_model_class(model_type: str, model_name: str):
     data_module = import_module(".data", package=__package__)
-    normalized_model_type = _normalize_model_name(model_type)
-    normalized_model_name = _normalize_model_name(model_name)
+    normalized_model_type = normalize_model_name(model_type)
+    normalized_model_name = normalize_model_name(model_name)
     candidates = [normalized_model_type, normalized_model_name]
     if any("qwen3_vl_moe" in candidate for candidate in candidates) and getattr(data_module, "Qwen3VLMoeDATA", None) is not None:
         return data_module.Qwen3VLMoeDATA
@@ -93,7 +85,7 @@ def _get_init_kwargs(model_args: "ModelArguments") -> dict[str, Any]:
     """
     skip_check_imports()
     model_args.model_name_or_path = try_download_model_from_other_hub(model_args)
-    if _is_flm_audio_model(model_args.model_name_or_path) and not model_args.trust_remote_code:
+    if is_flm_audio_model(model_args.model_name_or_path) and not model_args.trust_remote_code:
         logger.info_rank0("Enabling trust_remote_code automatically for FLM-Audio.")
         model_args.trust_remote_code = True
     return {
@@ -127,7 +119,7 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
             **init_kwargs,
         )
     except Exception as e:
-        if not _is_flm_audio_model(model_args.model_name_or_path):
+        if not is_flm_audio_model(model_args.model_name_or_path):
             raise OSError("Failed to load tokenizer.") from e
         logger.info_rank0(f"Failed to load tokenizer directly for FLM-Audio: {e}. Trying processor fallback.")
 
@@ -173,6 +165,39 @@ def load_config(model_args: "ModelArguments") -> "PretrainedConfig":
     return AutoConfig.from_pretrained(model_args.model_name_or_path, **init_kwargs)
 
 
+def _ensure_flm_audio_rope_compat(config: "PretrainedConfig") -> None:
+    """Best-effort guardrails for FLM-Audio remote-code on newer transformers.
+
+    Some FLM-Audio remote-code versions assume `ROPE_INIT_FUNCTIONS["default"]` exists.
+    On transformers>=5, this key may be absent, causing a KeyError during model init.
+    The failure happens before we can patch the instantiated model, so we patch the
+    config (preferred) and optionally patch `ROPE_INIT_FUNCTIONS` as a last resort.
+    """
+    # 1) Prefer patching config to a supported rope type.
+    rope_scaling = getattr(config, "rope_scaling", None)
+    if isinstance(rope_scaling, dict):
+        rope_type = rope_scaling.get("rope_type", rope_scaling.get("type"))
+        if rope_type == "default":
+            new_rope_scaling = dict(rope_scaling)
+            new_rope_scaling["rope_type"] = "linear"
+            new_rope_scaling.setdefault("factor", 1.0)
+            setattr(config, "rope_scaling", new_rope_scaling)
+
+    # 2) Last resort: ensure modeling_rope_utils has a "default" entry.
+    try:
+        from transformers import modeling_rope_utils as _mru
+
+        rope_init_fns = getattr(_mru, "ROPE_INIT_FUNCTIONS", None)
+        if isinstance(rope_init_fns, dict) and "default" not in rope_init_fns:
+            if "linear" in rope_init_fns:
+                rope_init_fns["default"] = rope_init_fns["linear"]
+            elif len(rope_init_fns) > 0:
+                rope_init_fns["default"] = next(iter(rope_init_fns.values()))
+    except Exception:
+        # If transformers doesn't expose the helper, just rely on config patching.
+        return
+
+
 def load_model(
     tokenizer: "PreTrainedTokenizer",
     model_args: "ModelArguments",
@@ -184,6 +209,8 @@ def load_model(
     init_kwargs = _get_init_kwargs(model_args)
     config = load_config(model_args)
     is_data_mode = finetuning_args.finetuning_type == "data" or finetuning_args.is_data
+    if is_flm_audio_model(model_args.model_name_or_path):
+        _ensure_flm_audio_rope_compat(config)
     patch_config(config, tokenizer, model_args, init_kwargs, is_trainable)
     apply_liger_kernel(config, model_args, is_trainable, require_logits=(finetuning_args.stage not in ["pt", "sft"]))
 
@@ -231,7 +258,7 @@ def load_model(
             model = load_mod_pretrained_model(**init_kwargs)
         else:
             auto_map = getattr(config, "auto_map", None) or {}
-            if _is_flm_audio_model(model_args.model_name_or_path):
+            if is_flm_audio_model(model_args.model_name_or_path):
                 load_class = AutoModelForCausalLM
             elif is_data_mode:
                 load_class = _get_data_model_class(getattr(config, "model_type", ""), model_args.model_name_or_path)
