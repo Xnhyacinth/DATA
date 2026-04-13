@@ -61,8 +61,14 @@ class KTransformersEngine(BaseEngine):
 
         tok_mod = load_tokenizer(model_args)
         self.tokenizer = tok_mod["tokenizer"]
+        self.processor = tok_mod["processor"]
         self.tokenizer.padding_side = "left" if self.can_generate else "right"
-        self.template = get_template_and_fix_tokenizer(self.tokenizer, data_args)
+        self.template = get_template_and_fix_tokenizer(
+            self.tokenizer,
+            data_args,
+            processor=self.processor,
+            model_name_or_path=model_args.model_name_or_path,
+        )
 
         self.model = load_model(
             self.tokenizer, model_args, finetuning_args, is_trainable=False, add_valuehead=(not self.can_generate)

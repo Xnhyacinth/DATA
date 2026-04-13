@@ -101,7 +101,12 @@ def load_reference_model(
 def load_dataset_module(**kwargs) -> "DatasetModule":
     model_args, data_args, training_args, _, _ = get_train_args(kwargs)
     tokenizer_module = load_tokenizer(model_args)
-    template = get_template_and_fix_tokenizer(tokenizer_module["tokenizer"], data_args)
+    template = get_template_and_fix_tokenizer(
+        tokenizer_module["tokenizer"],
+        data_args,
+        processor=tokenizer_module["processor"],
+        model_name_or_path=model_args.model_name_or_path,
+    )
     dataset_module = get_dataset(template, model_args, data_args, training_args, kwargs["stage"], **tokenizer_module)
     return dataset_module
 

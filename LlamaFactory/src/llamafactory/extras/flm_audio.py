@@ -27,3 +27,20 @@ def has_audio_feature_extractor(processor: Any) -> bool:
         getattr(processor, "audio_processor", None) is not None
     )
 
+
+def get_primary_architecture(config: Any, fallback_name: str = "") -> str:
+    """Best-effort architecture name extraction for remote-code and wrapped models."""
+    if config is not None:
+        architectures = getattr(config, "architectures", None) or []
+        if architectures:
+            return str(architectures[0]).lower()
+
+        model_type = getattr(config, "model_type", None)
+        if model_type:
+            return normalize_model_name(str(model_type))
+
+    return normalize_model_name(fallback_name)
+
+
+def is_t5_like_architecture(config: Any, fallback_name: str = "") -> bool:
+    return "t5" in get_primary_architecture(config, fallback_name=fallback_name)

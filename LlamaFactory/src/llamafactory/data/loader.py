@@ -306,10 +306,17 @@ def _get_preprocessed_dataset(
         )
 
     if stage == "cl":
+        cl_map_kwargs = {}
+        if not data_args.streaming:
+            cl_map_kwargs = dict(
+                num_proc=data_args.preprocessing_num_workers,
+                load_from_cache_file=(not data_args.overwrite_cache) or (training_args.local_process_index != 0),
+                desc="Extracting CL task metadata",
+            )
         dataset = dataset.map(
             lambda example, idx: _extract_cl_task_metadata(example, idx, data_args),
             with_indices=True,
-            desc="Extracting CL task metadata",
+            **cl_map_kwargs,
         )
 
     dataset = dataset.map(

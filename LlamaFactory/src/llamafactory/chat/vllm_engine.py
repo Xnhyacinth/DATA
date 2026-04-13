@@ -65,7 +65,12 @@ class VllmEngine(BaseEngine):
         self.tokenizer = tokenizer_module["tokenizer"]
         self.processor = tokenizer_module["processor"]
         self.tokenizer.padding_side = "left"
-        self.template = get_template_and_fix_tokenizer(self.tokenizer, data_args)
+        self.template = get_template_and_fix_tokenizer(
+            self.tokenizer,
+            data_args,
+            processor=self.processor,
+            model_name_or_path=model_args.model_name_or_path,
+        )
         self.template.mm_plugin.expand_mm_tokens = False  # for vllm generate
         self.generating_args = generating_args.to_dict()
 

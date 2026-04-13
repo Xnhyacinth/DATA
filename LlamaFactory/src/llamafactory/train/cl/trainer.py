@@ -28,6 +28,7 @@ from transformers import PreTrainedTokenizerBase, Seq2SeqTrainer
 from typing_extensions import override
 
 from ...extras.constants import IGNORE_INDEX
+from ...extras.flm_audio import is_t5_like_architecture
 from ...extras.logging import get_logger
 from ..callbacks import PissaConvertCallback, SaveProcessorCallback
 from ..trainer_utils import create_custom_optimizer, create_custom_scheduler
@@ -43,6 +44,12 @@ from transformers.trainer import *
 from transformers.trainer_callback import TrainerCallback
 
 logger = get_logger(__name__)
+
+
+def _is_t5_like_model(model: "torch.nn.Module") -> bool:
+    config = getattr(model, "config", None)
+    fallback_name = getattr(config, "model_type", "")
+    return is_t5_like_architecture(config, fallback_name=fallback_name)
 SUPPORTED_DECODER_MODELS = ['codegen', 'bloomz', 'gpt-neox', 'llama', 'qwen2']
 ANSWER_PREFIX = "Answer:"
 
@@ -322,7 +329,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         labels = inputs["labels"] if "labels" in inputs else None
         inputs = dict(inputs)
         inputs.pop("rope_deltas", None)
-        if self.args.predict_with_generate and not 't5' in model.config.architectures[0].lower():
+        if self.args.predict_with_generate and not _is_t5_like_model(model):
             assert self.tokenizer.padding_side == "left", "This method only accepts left-padded tensor."
             labels = labels.detach().clone() if labels is not None else None  # backup labels
             prompt_len, label_len = inputs["input_ids"].size(-1), inputs["labels"].size(-1)
@@ -373,7 +380,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                     mask = task_ids == task_id
                     task_specific_inputs = {k: v[mask] for k, v in inputs.items()}
 
-                    if 't5' in self.model.config.architectures[0].lower():
+                    if _is_t5_like_model(self.model):
                         self.model.encoder.task_id = task_id
                         self.model.decoder.task_id = task_id
                     # elif 'llama' in self.model.config.architectures[0].lower():
@@ -395,7 +402,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 all_generated_tokens = [self._pad_tensors_to_max_len(generated_tokens, max_len) for generated_tokens in all_generated_tokens]
                 generated_tokens = torch.cat(all_generated_tokens, dim=0)
             else:
-                if 't5' in self.model.config.architectures[0].lower():
+                if _is_t5_like_model(self.model):
                     self.model.encoder.task_id = task_ids[0]
                     self.model.decoder.task_id = task_ids[0]
                 # elif 'llama' in self.model.config.architectures[0].lower():
@@ -413,7 +420,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         #     import pdb;pdb.set_trace()
         # self.tokenizer.decode(inputs["labels"][0][:-2], skip_special_tokens=True) self.tokenizer.decode(inputs["input_ids"][0], skip_special_tokens=True)
         # self.tokenizer.decode(generated_tokens[0], skip_special_tokens=True)
-        if generated_tokens is not None and self.args.predict_with_generate and not 't5' in model.config.architectures[0].lower():
+        if generated_tokens is not None and self.args.predict_with_generate and not _is_t5_like_model(model):
             generated_tokens[:, :prompt_len] = self.tokenizer.pad_token_id
             generated_tokens = generated_tokens.contiguous()
 

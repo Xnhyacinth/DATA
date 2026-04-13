@@ -141,7 +141,42 @@ def patch_youtu_vl_model(model: "PreTrainedModel") -> None:
 
 def patch_flm_audio_model(model: "PreTrainedModel", tokenizer: "PreTrainedTokenizer") -> None:
     original_forward = model.forward
-    original_forward_text = model._forward_text
+    original_forward_text = getattr(model, "_forward_text", None)
+
+    def _get_audio_pad_token_id() -> int:
+        mm_token_info = getattr(model.config, "mm_token_info", None)
+        aud_pad_token_id = getattr(mm_token_info, "aud_pad_token_id", None)
+        if aud_pad_token_id is None:
+            aud_pad_token_id = getattr(tokenizer, "pad_token_id", None)
+        if aud_pad_token_id is None:
+            aud_pad_token_id = getattr(tokenizer, "eos_token_id", None)
+        if aud_pad_token_id is None:
+            aud_pad_token_id = 0
+        return int(aud_pad_token_id)
+
+    def _get_logits(result: Any):
+        if result is None:
+            return None
+        if isinstance(result, dict):
+            return result.get("logits")
+        return getattr(result, "logits", None)
+
+    def _attach_loss(result: Any, loss: "torch.Tensor", return_dict: bool):
+        if return_dict:
+            if isinstance(result, dict):
+                result["loss"] = loss
+            else:
+                setattr(result, "loss", loss)
+                try:
+                    result["loss"] = loss
+                except Exception:
+                    pass
+            return result
+
+        if isinstance(result, tuple):
+            return (loss,) + result
+
+        return (loss, result)
 
     def forward(self, *args, **kwargs):
         input_ids = kwargs.get("input_ids", None)
@@ -159,7 +194,7 @@ def patch_flm_audio_model(model: "PreTrainedModel", tokenizer: "PreTrainedTokeni
                 valid_token_count = int(input_ids.numel())
 
             aud_channel = getattr(self.config, "aud_channel", 8)
-            aud_pad_token_id = self.config.mm_token_info.aud_pad_token_id
+            aud_pad_token_id = _get_audio_pad_token_id()
             default_audio_ids = torch.full(
                 (valid_token_count, aud_channel),
                 aud_pad_token_id,
@@ -172,26 +207,30 @@ def patch_flm_audio_model(model: "PreTrainedModel", tokenizer: "PreTrainedTokeni
         return original_forward(*args, **kwargs)
 
     def forward_text(self, outputs, labels, return_dict):
-        result = original_forward_text(outputs, None, return_dict)
+        result = None
+        if callable(original_forward_text):
+            try:
+                result = original_forward_text(outputs, None, return_dict)
+            except NotImplementedError:
+                result = outputs
+
+        if result is None:
+            result = outputs
+
         if labels is None:
             return result
 
-        if return_dict:
-            logits = result.logits
-        else:
-            logits = result[0]
+        logits = _get_logits(result)
+        if logits is None and result is not outputs:
+            logits = _get_logits(outputs)
+        if logits is None:
+            return result
 
-        shift_logits = logits[..., :-1, :].contiguous()
+        shift_logits = logits[..., :-1, :].contiguous().float()
         shift_labels = labels[..., 1:].contiguous()
         loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100)
         loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-
-        if return_dict:
-            result.loss = loss
-            result["loss"] = loss
-            return result
-
-        return (loss,) + result
+        return _attach_loss(result, loss, return_dict)
 
     model.forward = MethodType(forward, model)
     model._forward_text = MethodType(forward_text, model)

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 from ...data import SFTDataCollatorWith4DAttentionMask, get_dataset, get_template_and_fix_tokenizer
 from ...extras.constants import IGNORE_INDEX
+from ...extras.flm_audio import is_t5_like_architecture
 from ...extras.misc import get_logits_processor
 from ...extras.packages import is_transformers_version_greater_than
 from ...extras.ploting import plot_loss
@@ -39,6 +40,10 @@ if TYPE_CHECKING:
     from ...hparams import DataArguments, FinetuningArguments, GeneratingArguments, ModelArguments
 
 
+def _clean_token_ids(token_ids: list[int]) -> list[int]:
+    return list(dict.fromkeys([token_id for token_id in token_ids if isinstance(token_id, int) and token_id >= 0]))
+
+
 def run_cl(
     model_args: "ModelArguments",
     data_args: "DataArguments",
@@ -49,7 +54,12 @@ def run_cl(
 ):
     tokenizer_module = load_tokenizer(model_args)
     tokenizer = tokenizer_module["tokenizer"]
-    template = get_template_and_fix_tokenizer(tokenizer, data_args)
+    template = get_template_and_fix_tokenizer(
+        tokenizer,
+        data_args,
+        processor=tokenizer_module["processor"],
+        model_name_or_path=model_args.model_name_or_path,
+    )
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="cl", **tokenizer_module)
     finetuning_args.n_tasks = len(data_args.orders)
     training_args.adaprompt = finetuning_args.adaprompt
@@ -156,11 +166,21 @@ def run_cl(
             extra_special_tokens = getattr(tokenizer, "_extra_special_tokens", [])
             string_tokens = [str(t) for t in extra_special_tokens]
             extra_ids = tokenizer.convert_tokens_to_ids(string_tokens)
-        all_eos_ids = [tokenizer.eos_token_id] + [i for i in extra_ids if i != -1]
-        gen_kwargs["eos_token_id"] = list(dict.fromkeys(all_eos_ids))
+        all_eos_ids = _clean_token_ids([getattr(tokenizer, "eos_token_id", -1), *extra_ids])
+        if all_eos_ids:
+            gen_kwargs["eos_token_id"] = all_eos_ids
     else:
-        gen_kwargs["eos_token_id"] = [tokenizer.eos_token_id] + tokenizer.additional_special_tokens_ids
-    gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
+        all_eos_ids = _clean_token_ids(
+            [getattr(tokenizer, "eos_token_id", -1), *(getattr(tokenizer, "additional_special_tokens_ids", []) or [])]
+        )
+        if all_eos_ids:
+            gen_kwargs["eos_token_id"] = all_eos_ids
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    if pad_token_id is not None:
+        gen_kwargs["pad_token_id"] = pad_token_id
+    elif "eos_token_id" in gen_kwargs:
+        eos_token_id = gen_kwargs["eos_token_id"]
+        gen_kwargs["pad_token_id"] = eos_token_id[0] if isinstance(eos_token_id, list) else eos_token_id
     gen_kwargs["logits_processor"] = get_logits_processor()
     gen_kwargs.pop("skip_special_tokens", None)
 
@@ -174,7 +194,7 @@ def run_cl(
         if trainer.is_world_process_zero() and finetuning_args.plot_loss:
             plot_loss(training_args.output_dir, keys=["loss", "eval_loss", "eval_accuracy"])
 
-    if training_args.predict_with_generate and 't5' not in model_args.model_name_or_path.lower():
+    if training_args.predict_with_generate and not is_t5_like_architecture(model.config, model_args.model_name_or_path):
         tokenizer.padding_side = "left"  # use left-padding in generation
 
     # Evaluation

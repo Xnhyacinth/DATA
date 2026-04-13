@@ -15,11 +15,12 @@
 import re
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from typing_extensions import override
 
 from ..extras import logging
+from ..extras.flm_audio import has_audio_feature_extractor, is_flm_audio_model
 from .data_utils import Role
 from .formatter import EmptyFormatter, FunctionFormatter, StringFormatter, ToolFormatter
 from .mm_plugin import get_mm_plugin
@@ -609,7 +610,12 @@ def parse_template(tokenizer: "PreTrainedTokenizer") -> "Template":
     )
 
 
-def get_template_and_fix_tokenizer(tokenizer: "PreTrainedTokenizer", data_args: "DataArguments") -> "Template":
+def get_template_and_fix_tokenizer(
+    tokenizer: "PreTrainedTokenizer",
+    data_args: "DataArguments",
+    processor: Optional[Any] = None,
+    model_name_or_path: Optional[str] = None,
+) -> "Template":
     r"""Get chat template and fixes the tokenizer."""
     if data_args.template is None:
         if isinstance(tokenizer.chat_template, str):
@@ -623,6 +629,18 @@ def get_template_and_fix_tokenizer(tokenizer: "PreTrainedTokenizer", data_args: 
             raise ValueError(f"Template {data_args.template} does not exist.")
 
         template = TEMPLATES[data_args.template]
+        resolved_model_name = model_name_or_path or getattr(tokenizer, "name_or_path", "")
+        if (
+            data_args.template == "flm_audio"
+            and is_flm_audio_model(resolved_model_name)
+            and processor is not None
+            and not has_audio_feature_extractor(processor)
+        ):
+            logger.warning_rank0(
+                "FLM-Audio processor has no audio feature extractor in this path; "
+                "fallback from `flm_audio` template to `chatml` for text-only usage."
+            )
+            template = TEMPLATES["chatml"]
 
     if data_args.train_on_prompt and template.efficient_eos:
         raise ValueError("Current template does not support `train_on_prompt`.")
