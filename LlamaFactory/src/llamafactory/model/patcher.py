@@ -48,22 +48,46 @@ if is_transformers_version_greater_than("4.57.0"):
 
 logger = logging.get_logger(__name__)
 
-_GENERATION_MIXIN_METHODS: tuple[str, ...] = (
-    # Entry points
+_GENERATION_REQUIRED_METHODS: tuple[str, ...] = (
     "generate",
     "prepare_inputs_for_generation",
-    # Common helpers used by transformers>=5 generation flow
-    "_extract_generation_mode_kwargs",
-    "_prepare_generation_config",
-    "_validate_model_kwargs",
-    "_prepare_model_inputs",
-    "_prepare_attention_mask_for_generation",
-    "_expand_inputs_for_generation",
-    "_update_model_kwargs_for_generation",
-    "_get_logits_processor",
-    "_get_stopping_criteria",
-    "_get_logits_warper",
 )
+
+
+def _iter_generation_mixin_methods() -> tuple[str, ...]:
+    method_names = []
+    for name in dir(GenerationMixin):
+        if name.startswith("__"):
+            continue
+        attr = getattr(GenerationMixin, name, None)
+        if callable(attr):
+            method_names.append(name)
+
+    return tuple(sorted(set(method_names) | set(_GENERATION_REQUIRED_METHODS)))
+
+
+def _reorder_flm_audio_cache(self, past_key_values, beam_idx: "torch.Tensor"):
+    """Generic cache reorder fallback for remote-code models lacking `_reorder_cache`."""
+
+    if past_key_values is None:
+        return past_key_values
+
+    if torch.is_tensor(past_key_values):
+        try:
+            return past_key_values.index_select(0, beam_idx.to(past_key_values.device))
+        except Exception:
+            return past_key_values
+
+    if isinstance(past_key_values, tuple):
+        return tuple(_reorder_flm_audio_cache(self, value, beam_idx) for value in past_key_values)
+
+    if isinstance(past_key_values, list):
+        return [_reorder_flm_audio_cache(self, value, beam_idx) for value in past_key_values]
+
+    if isinstance(past_key_values, dict):
+        return {key: _reorder_flm_audio_cache(self, value, beam_idx) for key, value in past_key_values.items()}
+
+    return past_key_values
 
 
 def _ensure_generation_mixin_methods(model: "PreTrainedModel") -> None:
@@ -73,12 +97,15 @@ def _ensure_generation_mixin_methods(model: "PreTrainedModel") -> None:
     `GenerationMixin.generate`, the call may fail later on missing internal helpers
     (e.g. `_extract_generation_mode_kwargs`).
     """
-    for name in _GENERATION_MIXIN_METHODS:
+    for name in _iter_generation_mixin_methods():
         if hasattr(model, name):
             continue
         mixin_attr = getattr(GenerationMixin, name, None)
         if callable(mixin_attr):
             setattr(model, name, MethodType(mixin_attr, model))
+
+    if not hasattr(model, "_reorder_cache"):
+        model._reorder_cache = MethodType(_reorder_flm_audio_cache, model)
 
 
 def patch_qwen3_omni_moe_thinker_text_sparse_moe_block():
