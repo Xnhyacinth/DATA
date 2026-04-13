@@ -32,6 +32,7 @@ from transformers.utils import is_torch_bf16_gpu_available, is_torch_npu_availab
 
 from ..extras import logging
 from ..extras.constants import CHECKPOINT_NAMES, EngineName
+from ..extras.flm_audio import is_flm_audio_model, normalize_model_name
 from ..extras.misc import check_dependencies, check_version, get_current_device, is_env_enabled
 from ..extras.packages import is_mcore_adapter_available
 from .data_args import DataArguments
@@ -452,13 +453,22 @@ def get_train_args(args: dict[str, Any] | list[str] | None = None) -> _TRAIN_CLS
         and training_args.ddp_find_unused_parameters is None
         and finetuning_args.finetuning_type == "lora"
     ):
-        normalized_model_name = model_args.model_name_or_path.lower().replace("-", "_")
-        if "cofeai/flm_audio" in normalized_model_name or normalized_model_name.endswith("flm_audio"):
+        if is_flm_audio_model(model_args.model_name_or_path):
             logger.info_rank0(
                 "Set `ddp_find_unused_parameters` to True in DDP training for FLM-Audio "
                 "since text-only LoRA leaves part of the multimodal parameters unused."
             )
             training_args.ddp_find_unused_parameters = True
+
+            # PyTorch DDP + reentrant checkpointing is prone to:
+            # "Expected to mark a variable ready only once" when LoRA params appear in
+            # multiple reentrant backward passes. Prefer non-reentrant GC for FLM-Audio.
+            if (not model_args.disable_gradient_checkpointing) and getattr(model_args, "use_reentrant_gc", True):
+                logger.info_rank0(
+                    "Set `use_reentrant_gc` to False in DDP training for FLM-Audio "
+                    "to avoid DDP reentrant checkpointing errors."
+                )
+                model_args.use_reentrant_gc = False
         else:
             logger.info_rank0("Set `ddp_find_unused_parameters` to False in DDP training since LoRA is enabled.")
             training_args.ddp_find_unused_parameters = False
