@@ -97,12 +97,22 @@ def _ensure_generation_mixin_methods(model: "PreTrainedModel") -> None:
     `GenerationMixin.generate`, the call may fail later on missing internal helpers
     (e.g. `_extract_generation_mode_kwargs`).
     """
+    model_cls = type(model)
     for name in _iter_generation_mixin_methods():
-        if hasattr(model, name):
-            continue
         mixin_attr = getattr(GenerationMixin, name, None)
-        if callable(mixin_attr):
+        if not callable(mixin_attr):
+            continue
+
+        # Some generation paths resolve helpers on `type(self)` rather than on the
+        # instance, so class-level patching is required for remote-code models.
+        if not hasattr(model_cls, name):
+            setattr(model_cls, name, mixin_attr)
+
+        if not hasattr(model, name):
             setattr(model, name, MethodType(mixin_attr, model))
+
+    if not hasattr(model_cls, "_reorder_cache"):
+        setattr(model_cls, "_reorder_cache", _reorder_flm_audio_cache)
 
     if not hasattr(model, "_reorder_cache"):
         model._reorder_cache = MethodType(_reorder_flm_audio_cache, model)
