@@ -48,6 +48,38 @@ if is_transformers_version_greater_than("4.57.0"):
 
 logger = logging.get_logger(__name__)
 
+_GENERATION_MIXIN_METHODS: tuple[str, ...] = (
+    # Entry points
+    "generate",
+    "prepare_inputs_for_generation",
+    # Common helpers used by transformers>=5 generation flow
+    "_extract_generation_mode_kwargs",
+    "_prepare_generation_config",
+    "_validate_model_kwargs",
+    "_prepare_model_inputs",
+    "_prepare_attention_mask_for_generation",
+    "_expand_inputs_for_generation",
+    "_update_model_kwargs_for_generation",
+    "_get_logits_processor",
+    "_get_stopping_criteria",
+    "_get_logits_warper",
+)
+
+
+def _ensure_generation_mixin_methods(model: "PreTrainedModel") -> None:
+    """Attach missing GenerationMixin methods required by the current transformers version.
+
+    Some remote-code models don't inherit GenerationMixin, so even if we bind
+    `GenerationMixin.generate`, the call may fail later on missing internal helpers
+    (e.g. `_extract_generation_mode_kwargs`).
+    """
+    for name in _GENERATION_MIXIN_METHODS:
+        if hasattr(model, name):
+            continue
+        mixin_attr = getattr(GenerationMixin, name, None)
+        if callable(mixin_attr):
+            setattr(model, name, MethodType(mixin_attr, model))
+
 
 def patch_qwen3_omni_moe_thinker_text_sparse_moe_block():
     if is_transformers_version_greater_than("4.57.0") and not is_transformers_version_greater_than("4.58.0"):
@@ -274,13 +306,14 @@ def patch_model(
     if getattr(model.config, "model_type", None) not in ["minicpmv", "minicpmo"]:
         generate_func = getattr(model, "generate", None)
         generate_impl = getattr(generate_func, "__func__", generate_func)
-        if not callable(generate_func) or "GenerationMixin" not in str(generate_impl):
-            model.generate = MethodType(GenerationMixin.generate, model)
-
         prepare_inputs_func = getattr(model, "prepare_inputs_for_generation", None)
         prepare_inputs_impl = getattr(prepare_inputs_func, "__func__", prepare_inputs_func)
-        if not callable(prepare_inputs_func) or "GenerationMixin" not in str(prepare_inputs_impl):
-            model.prepare_inputs_for_generation = MethodType(GenerationMixin.prepare_inputs_for_generation, model)
+        needs_mixin_generate = (not callable(generate_func)) or ("GenerationMixin" not in str(generate_impl))
+        needs_mixin_prepare = (not callable(prepare_inputs_func)) or ("GenerationMixin" not in str(prepare_inputs_impl))
+        needs_missing_helpers = not hasattr(model, "_extract_generation_mode_kwargs")
+
+        if needs_mixin_generate or needs_mixin_prepare or needs_missing_helpers:
+            _ensure_generation_mixin_methods(model)
 
     if getattr(model.config, "model_type", None) == "FLMAudio":
         patch_flm_audio_model(model, tokenizer)
