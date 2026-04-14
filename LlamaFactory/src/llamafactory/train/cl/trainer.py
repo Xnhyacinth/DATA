@@ -20,6 +20,7 @@ from copy import deepcopy
 import inspect
 import json
 import os
+import re
 from types import MethodType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -514,7 +515,35 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             summon_full_params_context = contextlib.nullcontext()
 
         with summon_full_params_context:
-            generated_tokens = self.model.generate(**generation_inputs, **gen_kwargs)
+            try:
+                generated_tokens = self.model.generate(**generation_inputs, **gen_kwargs)
+            except ValueError as e:
+                # transformers may raise when `model_kwargs` contains keys not consumed by the model.
+                # For remote-code wrappers, signature inspection may be unreliable, so we retry once
+                # after pruning the reported unused keys.
+                msg = str(e)
+                if "model_kwargs" not in msg or "not used by the model" not in msg:
+                    raise
+
+                pruned_keys: List[str] = []
+                m = re.search(r"not used by the model:\s*\[(.*)\]", msg)
+                if m is not None:
+                    raw = m.group(1).strip()
+                    if raw:
+                        for item in raw.split(","):
+                            key = item.strip().strip("'").strip('"')
+                            if key:
+                                pruned_keys.append(key)
+                # Fallback for variations in error formatting.
+                if not pruned_keys and "position_ids" in msg:
+                    pruned_keys = ["position_ids"]
+
+                if not pruned_keys:
+                    raise
+
+                for k in pruned_keys:
+                    generation_inputs.pop(k, None)
+                generated_tokens = self.model.generate(**generation_inputs, **gen_kwargs)
 
         if self.model.generation_config._from_model_config:
             self.model.generation_config._from_model_config = False
