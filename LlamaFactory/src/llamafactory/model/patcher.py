@@ -213,27 +213,92 @@ def patch_flm_audio_model(model: "PreTrainedModel", tokenizer: "PreTrainedTokeni
         listen_ids = kwargs.get("listen_ids", None)
         speak_ids = kwargs.get("speak_ids", None)
 
-        if input_ids is not None and listen_ids is None and speak_ids is None:
-            pad_token_id = getattr(tokenizer, "pad_token_id", None)
-            if attention_mask is not None:
-                valid_token_count = int(attention_mask.sum().item())
-            elif pad_token_id is not None:
-                valid_token_count = int(input_ids.ne(pad_token_id).sum().item())
-            else:
-                valid_token_count = int(input_ids.numel())
+        if input_ids is None:
+            return original_forward(*args, **kwargs)
 
-            aud_channel = getattr(self.config, "aud_channel", 8)
-            aud_pad_token_id = _get_audio_pad_token_id()
-            default_audio_ids = torch.full(
-                (valid_token_count, aud_channel),
+        # For text-only runs, upstream may omit audio ids or provide them in a different layout.
+        # FLM-Audio remote-code forward may operate either on:
+        # - flattened valid tokens: (N_valid, aud_channel)
+        # - per-token audio ids:     (B, L, aud_channel)
+        # We inject a safe placeholder and retry with the alternate layout if we hit a size mismatch.
+        pad_token_id = getattr(tokenizer, "pad_token_id", None)
+        aud_channel = getattr(self.config, "aud_channel", 8)
+        aud_pad_token_id = _get_audio_pad_token_id()
+
+        # Normalize to (B, L) for constructing masks and placeholders.
+        input_ids_2d = input_ids
+        attn_2d = attention_mask
+        if torch.is_tensor(input_ids_2d) and input_ids_2d.dim() == 1:
+            input_ids_2d = input_ids_2d.unsqueeze(0)
+            if torch.is_tensor(attn_2d) and attn_2d.dim() == 1:
+                attn_2d = attn_2d.unsqueeze(0)
+
+        valid_mask = None
+        if torch.is_tensor(attn_2d) and torch.is_tensor(input_ids_2d) and attn_2d.shape == input_ids_2d.shape:
+            valid_mask = attn_2d.to(dtype=torch.bool)
+        elif torch.is_tensor(input_ids_2d) and pad_token_id is not None:
+            valid_mask = input_ids_2d.ne(pad_token_id)
+        elif torch.is_tensor(input_ids_2d):
+            valid_mask = torch.ones_like(input_ids_2d, dtype=torch.bool)
+
+        # Build placeholders on the same device/dtype as input ids.
+        default_seq = None
+        default_flat = None
+        if torch.is_tensor(input_ids_2d) and valid_mask is not None:
+            bsz, seqlen = int(input_ids_2d.shape[0]), int(input_ids_2d.shape[1])
+            default_seq = torch.full(
+                (bsz, seqlen, aud_channel),
                 aud_pad_token_id,
                 device=input_ids.device,
                 dtype=input_ids.dtype,
             )
-            kwargs["listen_ids"] = default_audio_ids
-            kwargs["speak_ids"] = default_audio_ids.clone()
+            default_flat = default_seq[valid_mask]
 
-        return original_forward(*args, **kwargs)
+        # Prefer providing flattened valid tokens when audio ids are missing.
+        injected = False
+        if listen_ids is None and default_flat is not None:
+            kwargs["listen_ids"] = default_flat
+            injected = True
+        if speak_ids is None and default_flat is not None:
+            kwargs["speak_ids"] = default_flat.clone()
+            injected = True
+
+        try:
+            return original_forward(*args, **kwargs)
+        except RuntimeError as e:
+            msg = str(e)
+            if (
+                ("must match the size of tensor" in msg or "The size of tensor" in msg)
+                and "dimension 0" in msg
+                and valid_mask is not None
+                and default_seq is not None
+            ):
+                # One-shot fallback: if we passed (B,L,C) but the model expects (N_valid,C),
+                # or vice versa, swap the layout and retry.
+                alt_kwargs = dict(kwargs)
+                li = alt_kwargs.get("listen_ids", None)
+                si = alt_kwargs.get("speak_ids", None)
+
+                if torch.is_tensor(li) and li.dim() == 3 and li.shape[:2] == valid_mask.shape:
+                    alt_kwargs["listen_ids"] = li[valid_mask]
+                elif torch.is_tensor(li) and li.dim() == 2:
+                    alt_kwargs["listen_ids"] = default_seq
+                elif listen_ids is None:
+                    alt_kwargs["listen_ids"] = default_seq
+
+                if torch.is_tensor(si) and si.dim() == 3 and si.shape[:2] == valid_mask.shape:
+                    alt_kwargs["speak_ids"] = si[valid_mask]
+                elif torch.is_tensor(si) and si.dim() == 2:
+                    alt_kwargs["speak_ids"] = default_seq.clone()
+                elif speak_ids is None:
+                    alt_kwargs["speak_ids"] = default_seq.clone()
+
+                return original_forward(*args, **alt_kwargs)
+
+            # If we did not inject anything, do not hide genuine model bugs.
+            if not injected:
+                raise
+            raise
 
     def forward_text(self, outputs, labels, return_dict):
         result = None
