@@ -17,6 +17,7 @@
 
 import contextlib
 from copy import deepcopy
+import inspect
 import json
 import os
 from types import MethodType
@@ -477,6 +478,30 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         ):
             generation_inputs.pop("decoder_input_ids", None)
             generation_inputs.pop("decoder_attention_mask", None)
+
+        # Some models (especially trust_remote_code wrappers) validate generation kwargs strictly.
+        # transformers will raise if `model_kwargs` contains entries not accepted/used by the model.
+        # We defensively drop `position_ids` when the model does not advertise it in the signatures.
+        if "position_ids" in generation_inputs:
+            def _accepts_kwarg(fn: Any, name: str) -> bool:
+                if fn is None:
+                    return False
+                try:
+                    sig = inspect.signature(fn)
+                except Exception:
+                    # If we cannot inspect, keep the kwarg to avoid breaking models that require it.
+                    return True
+                for p in sig.parameters.values():
+                    if p.kind == inspect.Parameter.VAR_KEYWORD:
+                        return True
+                return name in sig.parameters
+
+            accepts_position_ids = (
+                _accepts_kwarg(getattr(self.model, "prepare_inputs_for_generation", None), "position_ids")
+                or _accepts_kwarg(getattr(self.model, "forward", None), "position_ids")
+            )
+            if not accepts_position_ids:
+                generation_inputs.pop("position_ids", None)
 
         try:
             from torch.distributed.fsdp import FullyShardedDataParallel as _FSDP  # type: ignore
