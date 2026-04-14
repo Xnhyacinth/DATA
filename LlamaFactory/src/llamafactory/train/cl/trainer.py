@@ -504,6 +504,13 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             if not accepts_position_ids:
                 generation_inputs.pop("position_ids", None)
 
+        # `expand_size` is an internal argument used by HF generation helpers. If it leaks into
+        # model kwargs (e.g., via remote-code wrappers or custom input dicts), transformers may
+        # raise `got multiple values for argument 'expand_size'` during `_expand_inputs_for_generation`.
+        # Always strip it from both input and generation kwargs.
+        generation_inputs.pop("expand_size", None)
+        gen_kwargs.pop("expand_size", None)
+
         try:
             from torch.distributed.fsdp import FullyShardedDataParallel as _FSDP  # type: ignore
         except Exception:
@@ -517,6 +524,15 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         with summon_full_params_context:
             try:
                 generated_tokens = self.model.generate(**generation_inputs, **gen_kwargs)
+            except TypeError as e:
+                # Guardrail for rare kwarg collisions inside generation helpers.
+                msg = str(e)
+                if "multiple values" in msg and "expand_size" in msg:
+                    generation_inputs.pop("expand_size", None)
+                    gen_kwargs.pop("expand_size", None)
+                    generated_tokens = self.model.generate(**generation_inputs, **gen_kwargs)
+                else:
+                    raise
             except ValueError as e:
                 # transformers may raise when `model_kwargs` contains keys not consumed by the model.
                 # For remote-code wrappers, signature inspection may be unreliable, so we retry once
