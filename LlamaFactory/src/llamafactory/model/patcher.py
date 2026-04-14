@@ -99,17 +99,36 @@ def _ensure_generation_mixin_methods(model: "PreTrainedModel") -> None:
     """
     model_cls = type(model)
     for name in _iter_generation_mixin_methods():
-        mixin_attr = getattr(GenerationMixin, name, None)
-        if not callable(mixin_attr):
+        # Preserve descriptor types (staticmethod/classmethod) when copying from GenerationMixin.
+        # `getattr(GenerationMixin, name)` resolves descriptors, so we must use `__dict__` to keep
+        # staticmethods like `_expand_inputs_for_generation` from being turned into instance methods.
+        raw_attr = GenerationMixin.__dict__.get(name, None)
+        resolved_attr = getattr(GenerationMixin, name, None)
+
+        if raw_attr is None and not callable(resolved_attr):
             continue
 
-        # Some generation paths resolve helpers on `type(self)` rather than on the
-        # instance, so class-level patching is required for remote-code models.
-        if not hasattr(model_cls, name):
-            setattr(model_cls, name, mixin_attr)
+        # Some generation paths resolve helpers on `type(self)` rather than on the instance,
+        # so class-level patching is required for remote-code models.
+        existing_raw = model_cls.__dict__.get(name, None)
+        if isinstance(raw_attr, staticmethod):
+            # Ensure the target class keeps it as a staticmethod (override incorrect prior injection).
+            if not isinstance(existing_raw, staticmethod):
+                setattr(model_cls, name, raw_attr)
+        elif isinstance(raw_attr, classmethod):
+            if not isinstance(existing_raw, classmethod):
+                setattr(model_cls, name, raw_attr)
+        else:
+            if not hasattr(model_cls, name) and callable(resolved_attr):
+                setattr(model_cls, name, resolved_attr)
 
-        if not hasattr(model, name):
-            setattr(model, name, MethodType(mixin_attr, model))
+        # Instance-level patching should not be applied to staticmethod/classmethod helpers.
+        # They must stay unbound to avoid kwarg/positional collisions inside transformers generate().
+        if isinstance(raw_attr, (staticmethod, classmethod)):
+            continue
+
+        if callable(resolved_attr) and not hasattr(model, name):
+            setattr(model, name, MethodType(resolved_attr, model))
 
     if not hasattr(model_cls, "_reorder_cache"):
         setattr(model_cls, "_reorder_cache", _reorder_flm_audio_cache)
