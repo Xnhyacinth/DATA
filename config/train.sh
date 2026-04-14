@@ -409,6 +409,38 @@ fi
 
 save_prefix=${save_path}
 extra_args0=${extra_args}
+
+# Detect whether a task has already produced a usable checkpoint under `save_path`.
+# We also persist a simple test-done marker to avoid parsing logs across versions.
+has_saved_ckpt() {
+    local dir="$1"
+    [ -d "${dir}" ] || return 1
+    # LoRA adapters
+    if [ -f "${dir}/adapter_model.safetensors" ] || [ -f "${dir}/adapter_model.bin" ] || [ -f "${dir}/adapter_model.pt" ]; then
+        return 0
+    fi
+    # Full / merged weights
+    if [ -f "${dir}/model.safetensors" ] || [ -f "${dir}/pytorch_model.bin" ] || [ -f "${dir}/pytorch_model.safetensors" ]; then
+        return 0
+    fi
+    # Fallback: some runs may keep HF trainer checkpoints.
+    if ls "${dir}"/checkpoint-* >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+is_test_done() {
+    local eval_output_dir="$1"
+    [ -f "${eval_output_dir}/.done" ]
+}
+
+mark_test_done() {
+    local eval_output_dir="$1"
+    mkdir -p "${eval_output_dir}"
+    touch "${eval_output_dir}/.done"
+}
+
 # Train
 idx=0
 bs0=${bs}
@@ -473,6 +505,36 @@ for part in "${parts[@]}"; do
         task_id=$((idx-1))
         extra_args="${extra_args} --task_id ${task_id}"
     fi
+
+    # Skip logic:
+    # - If `save_path` already has a checkpoint:
+    #   - If TEST_AFTER_EACH=0: skip training/testing.
+    #   - If TEST_AFTER_EACH!=0:
+    #       - If test marker exists: skip training/testing.
+    #       - Else: skip training, run test_after_train only.
+    eval_output_dir="${save_path}/test_after_train"
+    run_train=1
+    run_test=0
+    if [ "${test_after_each}" != "0" ]; then
+        run_test=1
+    fi
+    if has_saved_ckpt "${save_path}"; then
+        if [ "${test_after_each}" = "0" ]; then
+            echo "[SKIP] ${part}: found existing ckpt at ${save_path}, TEST_AFTER_EACH=0"
+            run_train=0
+            run_test=0
+        else
+            if is_test_done "${eval_output_dir}"; then
+                echo "[SKIP] ${part}: found existing ckpt and test done (${eval_output_dir}/.done)"
+                run_train=0
+                run_test=0
+            else
+                echo "[SKIP-TRAIN] ${part}: found existing ckpt at ${save_path}, will run test_after_train only"
+                run_train=0
+                run_test=1
+            fi
+        fi
+    fi
     
     if [ "$is_data" == "True" ];then
         if [ "$part" == "yahoo" ];then
@@ -532,59 +594,61 @@ for part in "${parts[@]}"; do
     echo "dataset: ${dataset}"
     echo "eval_dataset: ${eval_dataset}"
 
-    # NOTE: previously we captured the whole stdout into `succ=...`, which makes training look "silent".
-    # We now stream logs to both terminal and a per-run log file under output_dir.
-    mkdir -p "${save_path}"
-    LOGFILE="${save_path}/train.log"
-    echo "log_file: ${LOGFILE}"
-
     report_to="${REPORT_TO:-wandb}"
     if [ "${WANDB_DISABLED:-}" = "true" ] || [ "${WANDB_MODE:-}" = "disabled" ]; then
         report_to="${REPORT_TO:-none}"
     fi
     python_bin="${PYTHON_BIN:-python}"
 
-    PYTHONPATH="${llamafactory_src}:${PYTHONPATH}" CUDA_VISIBLE_DEVICES=${gpus} ${python_bin} -m llamafactory.cli train \
-        --stage cl \
-        --model_name_or_path ${model_name_or_path} \
-        --dataset_dir ./data \
-        --template ${template} \
-        --finetuning_type ${finetuning_type} \
-        --output_dir ${save_path} \
-        --overwrite_cache \
-        --overwrite_output_dir \
-        --cutoff_len ${cutoff_len} \
-        --preprocessing_num_workers 16 \
-        --per_device_train_batch_size ${bs} \
-        --per_device_eval_batch_size ${eval_bs} \
-        --gradient_accumulation_steps ${gradient_accumulation_steps} \
-        --lr_scheduler_type ${lr_scheduler_type} \
-        --logging_steps 10 \
-        --warmup_ratio ${warmup_ratio} \
-        --save_steps ${save_steps} \
-        --save_total_limit 1 \
-        --learning_rate ${lr} \
-        --num_train_epochs ${epoch} \
-        --max_samples ${max_samples} \
-        --ddp_timeout 180000000 \
-        --max_new_tokens ${max_new_tokens} \
-        --plot_loss \
-        --report_to ${report_to} \
-        --remove_unused_columns False \
-        --run_name ${run_name} \
-        --seed ${seed} \
-        --bf16 \
-        --orders ${orders} \
-        ${extra_args} 2>&1 | tee "${LOGFILE}"
-    train_status=${PIPESTATUS[0]}
-    sleep 20
-    bash config/rm.sh ${save_path} checkpoint
-    if [ "${train_status}" -ne 0 ]; then
-        echo "${part} error!"
-        exit 1
+    if [ "${run_train}" = "1" ]; then
+        # NOTE: previously we captured the whole stdout into `succ=...`, which makes training look "silent".
+        # We now stream logs to both terminal and a per-run log file under output_dir.
+        mkdir -p "${save_path}"
+        LOGFILE="${save_path}/train.log"
+        echo "log_file: ${LOGFILE}"
+
+        PYTHONPATH="${llamafactory_src}:${PYTHONPATH}" CUDA_VISIBLE_DEVICES=${gpus} ${python_bin} -m llamafactory.cli train \
+            --stage cl \
+            --model_name_or_path ${model_name_or_path} \
+            --dataset_dir ./data \
+            --template ${template} \
+            --finetuning_type ${finetuning_type} \
+            --output_dir ${save_path} \
+            --overwrite_cache \
+            --overwrite_output_dir \
+            --cutoff_len ${cutoff_len} \
+            --preprocessing_num_workers 16 \
+            --per_device_train_batch_size ${bs} \
+            --per_device_eval_batch_size ${eval_bs} \
+            --gradient_accumulation_steps ${gradient_accumulation_steps} \
+            --lr_scheduler_type ${lr_scheduler_type} \
+            --logging_steps 10 \
+            --warmup_ratio ${warmup_ratio} \
+            --save_steps ${save_steps} \
+            --save_total_limit 1 \
+            --learning_rate ${lr} \
+            --num_train_epochs ${epoch} \
+            --max_samples ${max_samples} \
+            --ddp_timeout 180000000 \
+            --max_new_tokens ${max_new_tokens} \
+            --plot_loss \
+            --report_to ${report_to} \
+            --remove_unused_columns False \
+            --run_name ${run_name} \
+            --seed ${seed} \
+            --bf16 \
+            --orders ${orders} \
+            ${extra_args} 2>&1 | tee "${LOGFILE}"
+        train_status=${PIPESTATUS[0]}
+        sleep 20
+        bash config/rm.sh ${save_path} checkpoint
+        if [ "${train_status}" -ne 0 ]; then
+            echo "${part} error!"
+            exit 1
+        fi
     fi
-    if [ "${test_after_each}" != "0" ]; then
-        eval_output_dir="${save_path}/test_after_train"
+
+    if [ "${run_test}" = "1" ]; then
         eval_logfile="${eval_output_dir}/predict.log"
         mkdir -p "${eval_output_dir}"
 
@@ -638,6 +702,7 @@ for part in "${parts[@]}"; do
             echo "${part} test_after_train error!"
             exit 1
         fi
+        mark_test_done "${eval_output_dir}"
     fi
     if [ "$idx" -gt 1 ]; then
         echo "mv  ${mvpath}"
