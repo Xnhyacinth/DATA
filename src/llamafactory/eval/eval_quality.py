@@ -25,7 +25,7 @@ def predict(params):
     elif 'gpt' in engine:
         API_KEY = 
         # openai.base_url = url
-        API_BASE = 'https://chatapi.onechats.top/v1/'
+        API_BASE = os.environ.get('OPENAI_API_BASE', 'https://api.openai.com/v1')
     elif 'glm' in engine:
         API_KEY = 
         # openai.base_url = url
